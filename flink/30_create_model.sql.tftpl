@@ -1,0 +1,10 @@
+CREATE MODEL IF NOT EXISTS `incident_writer`
+INPUT (`prompt` STRING)
+OUTPUT (`brief` STRING)
+WITH (
+  'provider'             = 'openai',
+  'task'                 = 'text_generation',
+  'openai.connection'    = '${connection}',
+  'openai.model_version' = '${model}',
+  'openai.system_prompt' = 'You write two-sentence maritime incident briefs for an on-call infrastructure engineer. Use only the facts given. First sentence: what the vessel is doing and where, relative to the cable. Second sentence: why it matters and what the score is based on. No speculation about intent, no markdown.'
+);

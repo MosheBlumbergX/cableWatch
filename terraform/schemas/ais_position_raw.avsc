@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "ais_position_raw_value",
+  "namespace": "io.cablewatch",
+  "doc": "One AIS position report from aisstream.io, as received. h3_r7 is computed by the producer.",
+  "fields": [
+    { "name": "mmsi",       "type": "int" },
+    { "name": "time_utc",   "type": { "type": "long", "logicalType": "timestamp-millis" }, "doc": "aisstream receive time" },
+    { "name": "ais_second", "type": "int", "doc": "UTC second from the report itself (60 = not available)" },
+    { "name": "lat",        "type": "double" },
+    { "name": "lon",        "type": "double" },
+    { "name": "sog",        "type": "double", "doc": "knots; 102.3 = not available" },
+    { "name": "cog",        "type": "double", "doc": "degrees; 360 = not available" },
+    { "name": "heading",    "type": "int", "doc": "degrees; 511 = not available" },
+    { "name": "nav_status", "type": "int", "doc": "0 under way, 1 at anchor, 5 moored, 15 undefined" },
+    { "name": "msg_type",   "type": "string" },
+    { "name": "h3_r7",      "type": ["null", "string"], "default": null },
+    { "name": "ship_name",  "type": ["null", "string"], "default": null },
+    { "name": "replay",     "type": "boolean", "default": false }
+  ]
+}

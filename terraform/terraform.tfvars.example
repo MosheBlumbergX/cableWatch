@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (git-ignored) and adjust.
+
+# AWS CLI profile to deploy the dashboard host with. Leave unset to use the
+# default credential chain (AWS_PROFILE, environment variables, SSO, ...).
+# aws_profile = "my-profile"
+
+# aws_region = "eu-central-1"   # keep it in the same region as the Kafka cluster
+# region     = "eu-central-1"   # Confluent Cloud region (Kafka + Flink)
+
+# Fixed ntfy topic instead of a random one (anyone who knows it can subscribe).
+# ntfy_topic = "cablewatch-demo"
+
+# Extra tags on every AWS resource, if your organisation's tagging policy requires them.
+# aws_tags = {
+#   owner = "you@example.com"
+# }

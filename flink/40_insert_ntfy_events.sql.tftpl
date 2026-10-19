@@ -1,0 +1,12 @@
+-- ntfy.sh push notification (JSON publish). Anyone subscribed to the topic in the
+-- ntfy app gets a phone notification; tapping it opens the vessel on the dashboard.
+INSERT INTO `ntfy_events`
+SELECT JSON_OBJECT(
+  KEY 'topic'    VALUE '${ntfy_topic}',
+  KEY 'title'    VALUE `summary`,
+  KEY 'message'  VALUE `brief`,
+  KEY 'priority' VALUE CASE `action` WHEN 'TRIGGER' THEN 5 WHEN 'WATCH' THEN 3 ELSE 2 END,
+  KEY 'tags'     VALUE JSON_ARRAY(CASE `action` WHEN 'TRIGGER' THEN 'rotating_light' WHEN 'WATCH' THEN 'warning' ELSE 'white_check_mark' END),
+  KEY 'click'    VALUE CONCAT('${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING))
+)
+FROM `${source}`;

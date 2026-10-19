@@ -1,0 +1,24 @@
+-- PagerDuty Events API v2. Same dedup_key for trigger and resolve, so the incident
+-- opens on ALERT and closes itself when the score drops back to NORMAL.
+INSERT INTO `pagerduty_events`
+SELECT JSON_OBJECT(
+  KEY 'routing_key'  VALUE '${routing_key}',
+  KEY 'event_action' VALUE LOWER(`action`),
+  KEY 'dedup_key'    VALUE CONCAT('cablewatch-', CAST(`mmsi` AS STRING), '-', `cable_id`),
+  KEY 'payload'      VALUE JSON_OBJECT(
+    KEY 'summary'        VALUE `summary`,
+    KEY 'source'         VALUE 'cablewatch-flink',
+    KEY 'severity'       VALUE 'critical',
+    KEY 'component'      VALUE `cable_name`,
+    KEY 'custom_details' VALUE JSON_OBJECT(
+      KEY 'brief' VALUE `brief`,
+      KEY 'score' VALUE `score`,
+      KEY 'mmsi'  VALUE `mmsi`,
+      KEY 'lat'   VALUE `lat`,
+      KEY 'lon'   VALUE `lon`)),
+  KEY 'links' VALUE JSON_ARRAY(JSON_OBJECT(
+    KEY 'href' VALUE CONCAT('${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING)),
+    KEY 'text' VALUE 'Live track'))
+)
+FROM `${source}`
+WHERE `action` IN ('TRIGGER', 'RESOLVE');

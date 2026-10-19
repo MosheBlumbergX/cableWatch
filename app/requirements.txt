@@ -1,0 +1,6 @@
+confluent-kafka[avro,schemaregistry,rules]>=2.16
+websockets>=15
+h3>=4.2
+fastapi>=0.115
+uvicorn>=0.30
+qrcode>=8.0

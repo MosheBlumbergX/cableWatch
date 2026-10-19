@@ -1,0 +1,19 @@
+-- Slack incoming webhook, Block Kit message.
+INSERT INTO `slack_events`
+SELECT JSON_OBJECT(
+  KEY 'text'   VALUE `summary`,
+  KEY 'blocks' VALUE JSON_ARRAY(
+    JSON_OBJECT(
+      KEY 'type' VALUE 'section',
+      KEY 'text' VALUE JSON_OBJECT(
+        KEY 'type' VALUE 'mrkdwn',
+        KEY 'text' VALUE CONCAT(
+          CASE `action` WHEN 'TRIGGER' THEN ':rotating_light: ' WHEN 'WATCH' THEN ':warning: ' ELSE ':white_check_mark: ' END,
+          '*', `summary`, '*', CHR(10), `brief`))),
+    JSON_OBJECT(
+      KEY 'type' VALUE 'context',
+      KEY 'elements' VALUE JSON_ARRAY(JSON_OBJECT(
+        KEY 'type' VALUE 'mrkdwn',
+        KEY 'text' VALUE CONCAT('Score ', CAST(`score` AS STRING), ' | ', `state`, ' | <',
+                                '${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING), '|Live track>'))))))
+FROM `${source}`;

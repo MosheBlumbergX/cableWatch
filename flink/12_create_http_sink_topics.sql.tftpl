@@ -1,0 +1,10 @@
+-- Exact HTTP request bodies, one JSON string per record (raw format: the column must be `val`), for the HTTP Sink V2 connectors.
+CREATE TABLE IF NOT EXISTS `${table}` (
+  `val` STRING
+)
+DISTRIBUTED INTO 1 BUCKETS
+WITH (
+  'changelog.mode'       = 'append',
+  'value.format'         = 'raw',
+  'kafka.retention.time' = '7 d'
+);

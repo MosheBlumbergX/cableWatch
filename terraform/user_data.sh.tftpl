@@ -1,0 +1,84 @@
+#!/bin/bash
+# Boot script: install the app from S3, pull credentials, load the cable
+# geography, then run the AIS producer and the dashboard.
+set -euxo pipefail
+
+dnf install -y python3.11 python3.11-pip unzip jq
+
+useradd --system --home /opt/cablewatch --shell /sbin/nologin cablewatch || true
+mkdir -p /opt/cablewatch
+aws s3 cp "s3://${bucket}/${key}" /tmp/app.zip --region ${region}
+unzip -o /tmp/app.zip -d /opt/cablewatch
+
+python3.11 -m venv /opt/cablewatch/.venv
+/opt/cablewatch/.venv/bin/pip install --upgrade pip
+/opt/cablewatch/.venv/bin/pip install -r /opt/cablewatch/requirements.txt
+
+# Credentials -> .env.app, readable only by the service user.
+aws secretsmanager get-secret-value --secret-id "${secret_arn}" --region ${region} \
+  --query SecretString --output text | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /opt/cablewatch/.env.app
+
+chown -R cablewatch:cablewatch /opt/cablewatch
+chmod 600 /opt/cablewatch/.env.app
+
+# Cable geography -> cable_cells (compacted, so loading it again is harmless).
+cat > /etc/systemd/system/cablewatch-loader.service <<'UNIT'
+[Unit]
+Description=Cable Watch: load cable cells
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cablewatch
+WorkingDirectory=/opt/cablewatch
+ExecStart=/opt/cablewatch/.venv/bin/python -u loader.py
+Restart=on-failure
+RestartSec=30
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /etc/systemd/system/cablewatch-producer.service <<'UNIT'
+[Unit]
+Description=Cable Watch: aisstream.io -> ais_position_raw / vessel_static
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cablewatch
+WorkingDirectory=/opt/cablewatch
+ExecStart=/opt/cablewatch/.venv/bin/python -u producer.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /etc/systemd/system/cablewatch-dashboard.service <<'UNIT'
+[Unit]
+Description=Cable Watch dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cablewatch
+WorkingDirectory=/opt/cablewatch
+Environment=REPO_URL=${repo_url}
+Environment=NTFY_URL=${ntfy_url}
+Environment=REPLAY_COOLDOWN_MINUTES=${cooldown}
+Environment=TABLEFLOW_ENABLED=${tableflow}
+Environment=LLM_ENABLED=${llm}
+ExecStart=/opt/cablewatch/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now cablewatch-loader cablewatch-producer cablewatch-dashboard

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cable Watch: dark vessels over Baltic subsea cables</title>
+  <meta name="description" content="Live AIS through Confluent Cloud and Flink SQL: vessels loitering, dragging anchor or going dark over Baltic subsea cables.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b1f2e'/%3E%3Cpath d='M2 18c4-6 8 6 12 0s8 6 12 0 4-3 4-3' stroke='%23d24c9c' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+  <div id="map" role="application" aria-label="Chart of the Baltic Sea with live vessel positions and subsea cables"></div>
+
+  <header class="masthead">
+    <h1>Cable Watch</h1>
+    <p class="lede">Every ship in the Baltic, scored live against the subsea cables and pipelines beneath it.</p>
+    <dl class="counts">
+      <div><dt>Vessels tracked</dt><dd id="count-vessels">0</dd></div>
+      <div><dt>Over a cable now</dt><dd id="count-corridor">0</dd></div>
+      <div><dt>On watch</dt><dd id="count-watch">0</dd></div>
+      <div><dt>Gone silent</dt><dd id="count-dark">0</dd></div>
+    </dl>
+  </header>
+
+  <div class="controls">
+    <button id="replay" type="button" class="replay">Replay the Eagle S incident</button>
+    <p id="replay-note" class="replay-note" aria-live="polite"></p>
+    <details class="subscribe" id="subscribe" hidden>
+      <summary>Get incident alerts on your phone</summary>
+      <div class="subscribe-body">
+        <img id="qr" alt="QR code for the ntfy alert topic" width="132" height="132">
+        <p>Scan with the camera, or install the <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a> app and subscribe to <a id="ntfy-link" target="_blank" rel="noopener"></a>. Flink writes the notification; a managed HTTP Sink connector sends it.</p>
+      </div>
+    </details>
+  </div>
+
+  <aside class="log" aria-labelledby="log-title">
+    <h2 id="log-title">Incident log</h2>
+    <ol id="incidents" class="incidents"></ol>
+    <p id="incidents-empty" class="empty">No incidents yet. A vessel is scored when it loiters, drags anchor or falls silent over a cable corridor. Replay the Eagle S incident to watch one end to end.</p>
+  </aside>
+
+  <aside id="vessel" class="vessel" aria-labelledby="vessel-name" hidden>
+    <button type="button" class="close" id="vessel-close" aria-label="Close vessel panel">×</button>
+    <h2 id="vessel-name"></h2>
+    <p id="vessel-meta" class="vessel-meta"></p>
+    <figure class="spark">
+      <svg id="spark" viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="Speed over ground, recent fixes"></svg>
+      <figcaption id="spark-caption"></figcaption>
+    </figure>
+    <section>
+      <h3>Risk by cable</h3>
+      <ul id="vessel-risk" class="rows"></ul>
+    </section>
+    <section>
+      <h3>Signals that scored</h3>
+      <ul id="vessel-signals" class="rows"></ul>
+    </section>
+    <section>
+      <h3>Navigational status changes</h3>
+      <ul id="vessel-nav" class="rows"></ul>
+    </section>
+  </aside>
+
+  <footer class="pipeline" aria-label="Data pipeline">
+    <a id="lineage" class="pipeline-link" target="_blank" rel="noopener" title="Open Stream Lineage in Confluent Cloud">
+      <ol id="pipeline" class="flow"></ol>
+    </a>
+    <p class="credits">
+      AIS from <a href="https://aisstream.io" target="_blank" rel="noopener">aisstream.io</a>.
+      Cable routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+      Built on Confluent Cloud: Kafka, Flink SQL, HTTP Sink, Tableflow.
+      <a id="repo" target="_blank" rel="noopener" hidden>Source</a>
+    </p>
+  </footer>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
