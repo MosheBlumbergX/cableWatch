@@ -23,7 +23,7 @@ aisstream.io (WebSocket)                          OpenStreetMap cable routes
  │ 23 MATCH_RECOGNIZE anchor drag ─► [drag_events]                            │
  │ 24 SESSION gap per vessel + temporal join ─► [dark_events]                 │
  │ 25 union + points ─► [risk_signals]                                        │
- │ 26 OVER (1 h) running score / 27 SESSION (1 h) decay ─► [risk_updates]     │
+ │ 26 OVER (1 h) running score ∪ SESSION (1 h) decay ─► [risk_updates]       │
  │ 28 upsert ─► [vessel_risk] ───────────────────────────────► Tableflow      │
  │ 29 LAG transitions + vessel_static join ─► [incidents] ───► Tableflow      │
  │ 32 ML_PREDICT brief (optional) ─► [incident_briefs]                        │
@@ -54,7 +54,7 @@ producer and serves the dashboard.
 
 Open the ntfy URL (or scan the QR code on the dashboard) and press
 **Replay the Eagle S incident**. A synthetic tanker crosses Estlink 2 in real
-time and drags its anchor. Expect WATCH after about 4 minutes and an ALERT, with
+time and drags its anchor. Expect WATCH about 8 minutes in and an ALERT, each with
 a push notification, a minute or two later. 30 minutes after it falls silent a
 dark-vessel signal follows, and an hour after that the incident resolves itself.
 
@@ -96,12 +96,18 @@ Add any of these to `.env` and run `make infra` again:
   Fast ships are skipped: they are usually just sailing out of receiver range.
 - **Score.** Loiter 20, drag 50, dark 40 points. The score is the sum over the
   last hour (OVER window): WATCH at 30, ALERT at 60. A one-hour session window
-  over the signals emits the CLEAR that resolves the incident.
+  over the signals emits the CLEAR that resolves the incident. Both run in one
+  statement: two jobs writing one topic commit at different checkpoints, their
+  rows interleave out of event-time order, and the incident statement would
+  drop the "late" ones.
 - **Heartbeat.** Signals are rare, and an event-time operator only emits once a
   later row moves its watermark forward. Idle-partition detection does not help
   when the whole topic is quiet. So `risk_signals` also carries one heartbeat row
   every 30 seconds, made by a tumbling window over the always-busy
   `vessel_fixes`. It is the ISS demo's idle-partition problem from the other side.
+  Detector rows reach `risk_signals` one checkpoint after the heartbeats, so its
+  watermark allows 3 minutes of lateness. That allowance is most of the delay
+  between a detection and its notification.
 - **Transitions** use a two-row `ROWS` frame (`FIRST_VALUE ... ROWS BETWEEN 1
   PRECEDING AND CURRENT ROW`) instead of `LAG`, whose RANGE frame makes two
   updates with the same timestamp see each other.

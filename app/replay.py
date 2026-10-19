@@ -8,7 +8,7 @@ topic) with replay = true, and the same Flink statements raise the incident.
 
 Event time is "now": the track plays in real time, one fix every 10 seconds, so
 it never disturbs the watermark for the live vessels sharing its partition.
-Expect WATCH about 4 minutes in, ALERT a minute or two later, a DARK signal 30
+Expect WATCH about 8 minutes in, ALERT a minute or two later, a DARK signal 30
 minutes after the last fix, and the incident resolving an hour after that.
 """
 import argparse
