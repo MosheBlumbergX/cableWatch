@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS `dark_events` (
   `lat`          DOUBLE,
   `lon`          DOUBLE,
   `distance_km`  DOUBLE,
-  `replay`       BOOLEAN,
   WATERMARK FOR `event_time` AS `event_time` - INTERVAL '10' SECOND
 )
 DISTRIBUTED BY HASH(`mmsi`) INTO 1 BUCKETS

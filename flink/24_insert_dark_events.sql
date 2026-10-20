@@ -3,6 +3,7 @@
 -- still gets a clock. An interval join fetches the session's last fix, and if
 -- that was within 10 km of a cable, the vessel went dark near it.
 -- Fast ships are skipped: they are usually just sailing out of receiver range.
+-- Like the geofence, the cable lookup never holds back the clock (see cable_cells).
 INSERT INTO `dark_events`
 SELECT
   s.`mmsi`,
@@ -15,8 +16,7 @@ SELECT
   f.`sog`          AS `last_sog`,
   f.`lat`,
   f.`lon`,
-  x.`distance_km`,
-  f.`replay`
+  x.`distance_km`
 FROM (
   SELECT `mmsi`, `window_start`, `window_end`, `window_time`,
          COUNT(*)        AS `fixes`,

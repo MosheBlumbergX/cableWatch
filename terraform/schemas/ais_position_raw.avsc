@@ -15,7 +15,6 @@
     { "name": "nav_status", "type": "int", "doc": "0 under way, 1 at anchor, 5 moored, 15 undefined" },
     { "name": "msg_type",   "type": "string" },
     { "name": "h3_r7",      "type": ["null", "string"], "default": null },
-    { "name": "ship_name",  "type": ["null", "string"], "default": null },
-    { "name": "replay",     "type": "boolean", "default": false }
+    { "name": "ship_name",  "type": ["null", "string"], "default": null }
   ]
 }

@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS `incident_briefs` (
   `vessel_name`    STRING,
   `lat`            DOUBLE,
   `lon`            DOUBLE,
-  `replay`         BOOLEAN,
   `summary`        STRING,
   `brief`          STRING,
   `template_brief` STRING

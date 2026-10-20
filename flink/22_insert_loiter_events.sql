@@ -15,8 +15,7 @@ SELECT
   MAX(`sog`)                                                   AS `max_sog`,
   LAST_VALUE(`lat`)                                            AS `lat`,
   LAST_VALUE(`lon`)                                            AS `lon`,
-  MIN(`distance_km`)                                           AS `distance_km`,
-  MAX(CAST(`replay` AS INT)) = 1                               AS `replay`
+  MIN(`distance_km`)                                           AS `distance_km`
 FROM TABLE(
   TUMBLE(TABLE `corridor_fixes`, DESCRIPTOR(`time_utc`), INTERVAL '20' MINUTES))
 WHERE `sog` < 2.0 AND `nav_status` <> 5

@@ -10,13 +10,12 @@ export TF_VAR_slack_webhook_url     = $(SLACK_WEBHOOK_URL)
 
 PY ?= python3
 
-.PHONY: help infra url status env producer dashboard replay cables destroy
+.PHONY: help infra url status env producer dashboard cables destroy
 
 help:
 	@echo "make infra      provision Confluent Cloud + AWS hosting, print the dashboard URL"
 	@echo "make url        print the dashboard and ntfy URLs"
 	@echo "make status     show Flink statement status"
-	@echo "make replay     run the Eagle S replay from this machine (needs make env)"
 	@echo "make env        write app/.env.app from Terraform outputs, for running the app locally"
 	@echo "make producer   run the AIS producer locally"
 	@echo "make dashboard  run the dashboard locally on http://localhost:8000"
@@ -52,9 +51,6 @@ producer:
 
 dashboard:
 	cd app && $(PY) -m uvicorn server:app --port 8000 --reload
-
-replay:
-	cd app && $(PY) -u replay.py
 
 cables:
 	cd tools && $(PY) build_cables.py

@@ -46,7 +46,7 @@ def valid_position(lat: float, lon: float) -> bool:
     return -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
 
 
-def position_record(msg: dict, replay: bool = False) -> dict:
+def position_record(msg: dict) -> dict:
     kind = msg["MessageType"]
     report = msg["Message"][kind]
     meta = msg["MetaData"]
@@ -64,7 +64,6 @@ def position_record(msg: dict, replay: bool = False) -> dict:
         "msg_type": kind,
         "h3_r7": h3.latlng_to_cell(lat, lon, config.H3_RESOLUTION) if valid_position(lat, lon) else None,
         "ship_name": (meta.get("ShipName") or "").strip() or None,
-        "replay": replay,
     }
 
 
@@ -85,7 +84,7 @@ def static_record(msg: dict) -> dict:
 
 
 class AisWriter:
-    """Serializes and produces positions and static data; shared with replay.py."""
+    """Serializes and produces positions and static data."""
 
     def __init__(self):
         serde.register_rules()

@@ -13,8 +13,7 @@ SELECT
   CASE WHEN `heading` BETWEEN 0 AND 359 THEN `heading` END         AS `heading`,
   `nav_status`,
   `h3_r7`,
-  NULLIF(TRIM(`ship_name`), '')                                    AS `ship_name`,
-  `replay`
+  NULLIF(TRIM(`ship_name`), '')                                    AS `ship_name`
 FROM (
   SELECT *,
     ROW_NUMBER() OVER (PARTITION BY `mmsi`, `ais_second`, `lat`, `lon` ORDER BY `time_utc`) AS `rn`

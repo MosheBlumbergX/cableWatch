@@ -1,4 +1,6 @@
 -- Slack incoming webhook, Block Kit message.
+-- Incidents older than 30 minutes are never sent: restarting a statement replays
+-- its input, and nobody should be paged for history.
 INSERT INTO `slack_events`
 SELECT JSON_OBJECT(
   KEY 'text'   VALUE `summary`,
@@ -16,4 +18,5 @@ SELECT JSON_OBJECT(
         KEY 'type' VALUE 'mrkdwn',
         KEY 'text' VALUE CONCAT('Score ', CAST(`score` AS STRING), ' | ', `state`, ' | <',
                                 '${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING), '|Live track>'))))))
-FROM `${source}`;
+FROM `${source}`
+WHERE `event_time` > CURRENT_TIMESTAMP - INTERVAL '30' MINUTE;

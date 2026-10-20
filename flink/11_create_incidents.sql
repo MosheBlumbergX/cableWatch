@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS `incidents` (
   `lon`         DOUBLE,
   `sog`         DOUBLE,
   `distance_km` DOUBLE,
-  `replay`      BOOLEAN,
   `summary`     STRING,
   `brief`       STRING,
   `prompt`      STRING,

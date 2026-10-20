@@ -13,8 +13,7 @@ SELECT
   `avg_sog`,
   `lat`,
   `lon`,
-  `distance_km`,
-  `replay`
+  `distance_km`
 FROM `corridor_fixes`
 MATCH_RECOGNIZE (
   PARTITION BY `mmsi`, `cable_id`
@@ -28,8 +27,7 @@ MATCH_RECOGNIZE (
     AVG(D.`sog`)             AS `avg_sog`,
     LAST(D.`lat`)            AS `lat`,
     LAST(D.`lon`)            AS `lon`,
-    MIN(D.`distance_km`)     AS `distance_km`,
-    LAST(D.`replay`)         AS `replay`
+    MIN(D.`distance_km`)     AS `distance_km`
   ONE ROW PER MATCH
   AFTER MATCH SKIP PAST LAST ROW
   PATTERN (D{8}) WITHIN INTERVAL '30' MINUTE

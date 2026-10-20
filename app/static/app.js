@@ -9,6 +9,7 @@ const COLORS = {
   red: "#ff5a4e",
   water: "#0b1f2e",
   land: "#1f2c2a",
+  countryLabel: "#7f9693",
 };
 const NAV_STATUS = {
   0: "under way using engine", 1: "at anchor", 2: "not under command", 3: "restricted manoeuvrability",
@@ -43,7 +44,7 @@ const ago = (t) => {
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
   container: "map",
-  style: "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json",
+  style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
   bounds: [[9.5, 53.5], [30.5, 66.0]],
   fitBoundsOptions: { padding: { top: 40, bottom: 110, left: 390, right: 40 } },
   minZoom: 3,
@@ -52,10 +53,20 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
-// Chart-night palette over the CARTO base: deep blue water, slate land.
+// Chart-night palette over the CARTO base: deep blue water, slate land, and
+// country names as the only base-map labels.
 function recolorBase() {
   for (const layer of map.getStyle().layers) {
-    if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", COLORS.land);
+    if (layer.type === "symbol") {
+      if (/^place_country/.test(layer.id)) {
+        map.setLayerZoomRange(layer.id, 2, 9);
+        map.setPaintProperty(layer.id, "text-color", COLORS.countryLabel);
+        map.setPaintProperty(layer.id, "text-halo-color", COLORS.land);
+        map.setPaintProperty(layer.id, "text-halo-width", 1.2);
+      } else {
+        map.setLayoutProperty(layer.id, "visibility", "none");
+      }
+    } else if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", COLORS.land);
     else if (layer.type === "fill" && /water/.test(layer.id)) map.setPaintProperty(layer.id, "fill-color", COLORS.water);
     else if (layer.type === "line" && /water|river/.test(layer.id)) map.setPaintProperty(layer.id, "line-color", COLORS.water);
     else if (layer.type === "fill" && /landcover|park|landuse|building/.test(layer.id)) map.setPaintProperty(layer.id, "fill-opacity", 0.15);
@@ -145,7 +156,7 @@ map.once("style.load", async () => {
     id: "ghosts", type: "circle", source: "ghosts",
     paint: {
       "circle-radius": 9, "circle-color": "rgba(0,0,0,0)",
-      "circle-stroke-color": ["case", ["get", "replay"], COLORS.red, COLORS.amber], "circle-stroke-width": 1.5,
+      "circle-stroke-color": COLORS.amber, "circle-stroke-width": 1.5,
       "circle-stroke-opacity": 0.9,
     },
   });
@@ -167,6 +178,7 @@ map.once("style.load", async () => {
       "icon-rotate": ["coalesce", ["get", "hdg"], 0],
       "icon-rotation-alignment": "map",
       "icon-allow-overlap": true,
+      "icon-ignore-placement": true, // never push country names off the map
       "symbol-sort-key": ["get", "score"],
     },
     paint: {
@@ -180,7 +192,7 @@ map.once("style.load", async () => {
   });
   map.addLayer({
     id: "vessel-labels", type: "symbol", source: "vessels",
-    filter: ["any", [">", ["get", "score"], 0], ["get", "replay"]],
+    filter: [">", ["get", "score"], 0],
     layout: {
       "text-field": ["get", "name"], "text-size": 12, "text-font": ["Open Sans Semibold"],
       "text-offset": [0, 1.3], "text-anchor": "top",
@@ -251,7 +263,7 @@ function redraw() {
       geometry: { type: "Point", coordinates: [v.lon, v.lat] },
       properties: {
         mmsi: v.mmsi, sog: v.sog, hdg: v.hdg, nav: v.nav, score: v.score, corridor: !!v.corridor,
-        stale, replay: !!v.replay, name: v.name || `MMSI ${v.mmsi}`,
+        stale, name: v.name || `MMSI ${v.mmsi}`,
       },
     });
   }
@@ -262,7 +274,7 @@ function redraw() {
     features: [...dark.values()].map((d) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [d.lon, d.lat] },
-      properties: { mmsi: d.mmsi, name: d.name || `MMSI ${d.mmsi}`, silent: ago(d.last_seen), replay: !!d.replay },
+      properties: { mmsi: d.mmsi, name: d.name || `MMSI ${d.mmsi}`, silent: ago(d.last_seen) },
     })),
   });
 
@@ -373,33 +385,6 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeVesse
 setInterval(() => { if (selected) openVessel(selected); }, 5000);
 
 // ---------------------------------------------------------------------------
-// Replay
-// ---------------------------------------------------------------------------
-function showReplay(r) {
-  const btn = $("replay");
-  if (r.running) {
-    btn.disabled = true;
-    $("replay-note").textContent = `Replay running since ${hhmm(r.started)} UTC. Watch the Estlink 2 corridor in the Gulf of Finland.`;
-  } else if (r.cooldown_s > 0) {
-    btn.disabled = true;
-    $("replay-note").textContent = `Next replay available in ${Math.ceil(r.cooldown_s / 60)} min.`;
-  } else {
-    btn.disabled = false;
-    $("replay-note").textContent = "";
-  }
-}
-$("replay").addEventListener("click", async () => {
-  $("replay").disabled = true;
-  const res = await fetch("/api/replay", { method: "POST" });
-  const body = await res.json();
-  if (!res.ok) $("replay-note").textContent = body.reason;
-  else {
-    showReplay(body);
-    map.flyTo({ center: [25.57, 60.0], zoom: 9, speed: 1.2 });
-  }
-});
-
-// ---------------------------------------------------------------------------
 // Stream
 // ---------------------------------------------------------------------------
 async function init() {
@@ -412,14 +397,13 @@ async function init() {
   }
   if (cfg.lineage_url) $("lineage").href = cfg.lineage_url;
   if (cfg.repo_url) { $("repo").href = cfg.repo_url; $("repo").hidden = false; }
-  showReplay(cfg.replay);
 
   const es = new EventSource("/api/stream");
   es.onmessage = (e) => {
     const d = JSON.parse(e.data);
     now = d.now;
-    for (const [mmsi, lat, lon, sog, hdg, nav, name, t, score, replay, corridor] of d.vessels) {
-      vessels.set(mmsi, { mmsi, lat, lon, sog, hdg, nav, name, t, score, replay, corridor });
+    for (const [mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor] of d.vessels) {
+      vessels.set(mmsi, { mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor });
     }
     for (const r of d.risk) {
       risk.set(`${r.mmsi}|${r.cable_id}`, r);
@@ -430,7 +414,6 @@ async function init() {
     for (const id of [...dark.keys()]) if (!d.dark_ids.includes(id)) dark.delete(id);
     for (const i of d.incidents) addIncident(i);
     if (d.rates.topics.length) renderPipeline(d.rates);
-    if (d.replay) showReplay(d.replay);
     redraw();
   };
 }

@@ -191,7 +191,6 @@ resource "aws_instance" "app" {
     secret_arn = aws_secretsmanager_secret.kafka.arn
     repo_url   = var.repo_url
     ntfy_url   = "${var.ntfy_server}/${local.ntfy_topic}"
-    cooldown   = var.replay_cooldown_minutes
     tableflow  = var.tableflow_enabled
     llm        = local.llm_enabled
   })

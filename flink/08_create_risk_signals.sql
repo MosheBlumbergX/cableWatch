@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS `risk_signals` (
   `lon`         DOUBLE,
   `distance_km` DOUBLE,
   `sog`         DOUBLE,
-  `replay`      BOOLEAN,
   WATERMARK FOR `event_time` AS `event_time` - INTERVAL '3' MINUTE
 )
 DISTRIBUTED BY HASH(`mmsi`, `cable_id`) INTO 1 BUCKETS

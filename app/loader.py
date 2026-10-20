@@ -2,8 +2,8 @@
 
 One record per H3 cell, listing every cable within 10 km of it. The records are
 timestamped 2020-01-01 so that, in the temporal join, this version of the
-geography is valid for every vessel fix. cable_cells is compacted, so running
-the loader again just rewrites the same keys.
+geography is valid for every vessel fix. The loader runs on every boot of the
+dashboard host but only writes when the topic is empty (or with --force).
 """
 import gzip
 import json
@@ -11,7 +11,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from confluent_kafka import Producer
+from confluent_kafka import Consumer, Producer, TopicPartition
 
 import config
 import serde
@@ -19,7 +19,20 @@ import serde
 VALID_FROM_MS = int(datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
 
+def already_loaded() -> bool:
+    consumer = Consumer({**config.kafka_conf(), "group.id": "cablewatch-loader"})
+    try:
+        partitions = consumer.list_topics(config.TOPIC_CELLS, timeout=15).topics[config.TOPIC_CELLS].partitions
+        return any(consumer.get_watermark_offsets(TopicPartition(config.TOPIC_CELLS, p), timeout=10)[1] > 0
+                   for p in partitions)
+    finally:
+        consumer.close()
+
+
 def main() -> None:
+    if already_loaded() and "--force" not in sys.argv:
+        print(f"{config.TOPIC_CELLS} already has data; nothing to do (use --force to reload)")
+        return
     with gzip.open(config.DATA_DIR / "cable_cells.json.gz", "rt") as f:
         rows = json.load(f)
     cells: dict[str, list] = defaultdict(list)

@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS `vessel_fixes` (
   `nav_status`  INT              NOT NULL,
   `h3_r7`       STRING           NOT NULL,
   `ship_name`   STRING,
-  `replay`      BOOLEAN          NOT NULL,
   WATERMARK FOR `time_utc` AS `time_utc` - INTERVAL '10' SECOND
 )
 DISTRIBUTED BY HASH(`mmsi`) INTO 3 BUCKETS

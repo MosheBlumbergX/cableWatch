@@ -10,7 +10,6 @@ import asyncio
 import io
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -24,7 +23,7 @@ from confluent_kafka import Consumer, TopicPartition
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
@@ -33,7 +32,7 @@ import serde
 STATIC_DIR = Path(__file__).with_name("static")
 TRACK_POINTS = 120
 VESSEL_TTL_S = 3 * 3600       # drop vessels not heard from for this long
-FIXES_LOOKBACK_S = 30 * 60    # on start, replay this much vessel_fixes history
+FIXES_LOOKBACK_S = 30 * 60    # on start, read this much vessel_fixes history
 EVENTS_LOOKBACK_S = 24 * 3600
 
 # Pipeline strip, in data-flow order. Topics that don't exist (optional outcomes) are skipped.
@@ -106,7 +105,7 @@ def handle_fix(v: dict) -> None:
         vessel.update({
             "lat": v["lat"], "lon": v["lon"], "sog": v["sog"], "cog": v["cog"], "hdg": v["heading"],
             "nav": v["nav_status"], "name": v["ship_name"] or vessel.get("name"), "t": t,
-            "replay": v["replay"], "seq": state.bump(),
+            "seq": state.bump(),
         })
         vessel["track"].append((round(v["lon"], 5), round(v["lat"], 5), round(v["sog"], 1), t))
         if mmsi in state.dark and state.dark[mmsi]["last_seen"] < t:
@@ -128,7 +127,7 @@ def handle_risk(v: dict) -> None:
             "mmsi": v["mmsi"], "cable_id": v["cable_id"], "cable_name": v["cable_name"],
             "name": v["ship_name"], "score": v["score"], "state": v["state"], "signal": v["last_signal"],
             "loiter": v["loiter_count"], "drag": v["drag_count"], "dark": v["dark_count"],
-            "lat": v["lat"], "lon": v["lon"], "t": ms(v["updated_at"]), "replay": v["replay"],
+            "lat": v["lat"], "lon": v["lon"], "t": ms(v["updated_at"]),
             "seq": state.bump(),
         }
 
@@ -153,7 +152,7 @@ def handle_dark(v: dict) -> None:
         state.dark[v["mmsi"]] = {
             "mmsi": v["mmsi"], "name": v["ship_name"], "cable_id": v["cable_id"], "cable_name": v["cable_name"],
             "lat": v["lat"], "lon": v["lon"], "last_seen": last_seen, "distance_km": v["distance_km"],
-            "replay": v["replay"], "seq": state.bump(),
+            "seq": state.bump(),
         }
 
 
@@ -163,7 +162,7 @@ def handle_incident(v: dict) -> None:
             "mmsi": v["mmsi"], "cable_id": v["cable_id"], "t": ms(v["event_time"]), "action": v["action"],
             "state": v["state"], "score": v["score"], "signal": v["signal"], "cable_name": v["cable_name"],
             "name": v["vessel_name"], "type": v["vessel_type"], "lat": v["lat"], "lon": v["lon"],
-            "replay": v["replay"], "summary": v["summary"], "brief": v["brief"], "seq": state.bump(),
+            "summary": v["summary"], "brief": v["brief"], "seq": state.bump(),
         })
 
 
@@ -289,7 +288,7 @@ def vessel_row(v: dict, scores: dict) -> list:
     hdg = v["hdg"] if v.get("hdg") is not None else v.get("cog")
     return [v["mmsi"], round(v["lat"], 5), round(v["lon"], 5), round(v["sog"], 1),
             None if hdg is None else round(hdg), v.get("nav"), v.get("name"), v["t"],
-            scores.get(v["mmsi"], 0), 1 if v.get("replay") else 0,
+            scores.get(v["mmsi"], 0),
             # over a cable: the latest fix was also a corridor fix
             1 if v.get("corridor_t", 0) >= v["t"] - 1000 else 0]
 
@@ -316,24 +315,20 @@ def delta(since: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Replay
-# ---------------------------------------------------------------------------
-REPLAY_COOLDOWN_S = int(os.environ.get("REPLAY_COOLDOWN_MINUTES", "20")) * 60
-replay = {"proc": None, "started": 0.0}
-
-
-def replay_status() -> dict:
-    proc = replay["proc"]
-    running = proc is not None and proc.poll() is None
-    wait = max(0, int(replay["started"] + REPLAY_COOLDOWN_S - time.time()))
-    return {"running": running, "started": int(replay["started"] * 1000) or None, "cooldown_s": 0 if running else wait}
-
-
-# ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Cable Watch")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def static_cache_control(request, call_next):
+    # CloudFront caches /static/* for a day unless told otherwise; five minutes
+    # keeps the edge useful without serving an old app.js long after a deploy.
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=300"
+    return response
 
 
 @app.on_event("startup")
@@ -356,7 +351,6 @@ def api_config():
         "repo_url": os.environ.get("REPO_URL", ""),
         "tableflow": os.environ.get("TABLEFLOW_ENABLED", "true") == "true",
         "llm": os.environ.get("LLM_ENABLED", "false") == "true",
-        "replay": replay_status(),
     }
 
 
@@ -397,19 +391,6 @@ def api_vessel(mmsi: int):
         }
 
 
-@app.post("/api/replay")
-def api_replay():
-    status = replay_status()
-    if status["running"]:
-        return JSONResponse({"ok": False, "reason": "A replay is already running.", **status}, status_code=409)
-    if status["cooldown_s"] > 0:
-        return JSONResponse({"ok": False, "reason": f"Next replay in {status['cooldown_s'] // 60 + 1} min.", **status},
-                            status_code=429)
-    replay["proc"] = subprocess.Popen([sys.executable, "-u", str(Path(__file__).with_name("replay.py"))])
-    replay["started"] = time.time()
-    return {"ok": True, **replay_status()}
-
-
 @app.get("/api/stream")
 async def api_stream():
     async def events():
@@ -418,7 +399,6 @@ async def api_stream():
         while True:
             payload = delta(since)
             since = payload["seq"]
-            payload["replay"] = replay_status()
             yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
             if time.time() - last_ping > 15:
                 yield ": keepalive\n\n"

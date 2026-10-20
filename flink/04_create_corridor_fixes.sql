@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS `corridor_fixes` (
   `heading`     INT,
   `nav_status`  INT,
   `ship_name`   STRING,
-  `replay`      BOOLEAN,
   `cable_name`  STRING,
   `kind`        STRING,
   `distance_km` DOUBLE,

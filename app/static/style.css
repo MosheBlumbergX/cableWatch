@@ -88,17 +88,6 @@ h1, h2, h3 { font-family: var(--figures); font-weight: 600; margin: 0; letter-sp
   gap: 0.5rem;
   max-width: 19rem;
 }
-.replay {
-  font: 600 var(--step-1)/1 var(--figures);
-  color: var(--water);
-  background: var(--magenta);
-  border: 0;
-  border-radius: 2px;
-  padding: 0.6rem 0.9rem;
-  cursor: pointer;
-}
-.replay:disabled { background: var(--rule); color: var(--ink-dim); cursor: default; }
-.replay-note { margin: 0; font-size: var(--step--1); color: var(--ink-dim); text-align: right; min-height: 1em; }
 
 .subscribe {
   background: var(--panel);

@@ -1,5 +1,7 @@
 -- ntfy.sh push notification (JSON publish). Anyone subscribed to the topic in the
 -- ntfy app gets a phone notification; tapping it opens the vessel on the dashboard.
+-- Incidents older than 30 minutes are never sent: restarting a statement replays
+-- its input, and nobody should be paged for history.
 INSERT INTO `ntfy_events`
 SELECT JSON_OBJECT(
   KEY 'topic'    VALUE '${ntfy_topic}',
@@ -9,4 +11,5 @@ SELECT JSON_OBJECT(
   KEY 'tags'     VALUE JSON_ARRAY(CASE `action` WHEN 'TRIGGER' THEN 'rotating_light' WHEN 'WATCH' THEN 'warning' ELSE 'white_check_mark' END),
   KEY 'click'    VALUE CONCAT('${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING))
 )
-FROM `${source}`;
+FROM `${source}`
+WHERE `event_time` > CURRENT_TIMESTAMP - INTERVAL '30' MINUTE;

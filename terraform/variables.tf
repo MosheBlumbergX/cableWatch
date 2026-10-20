@@ -111,9 +111,3 @@ variable "repo_url" {
   type        = string
   default     = ""
 }
-
-variable "replay_cooldown_minutes" {
-  description = "Minimum time between replays started from the dashboard button."
-  type        = number
-  default     = 20
-}

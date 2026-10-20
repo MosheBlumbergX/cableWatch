@@ -26,8 +26,7 @@ SELECT
   `lat`,
   `lon`,
   `distance_km`,
-  `sog`,
-  `replay`
+  `sog`
 FROM (
   SELECT *,
     SUM(`points`) OVER w                                        AS `score`,
@@ -57,8 +56,7 @@ SELECT
   CAST(NULL AS DOUBLE),
   CAST(NULL AS DOUBLE),
   CAST(NULL AS DOUBLE),
-  CAST(NULL AS DOUBLE),
-  MAX(CAST(`replay` AS INT)) = 1
+  CAST(NULL AS DOUBLE)
 FROM TABLE(
   SESSION(TABLE `risk_signals` PARTITION BY (`mmsi`, `cable_id`), DESCRIPTOR(`event_time`), INTERVAL '1' HOUR))
 WHERE `signal` <> 'HEARTBEAT'

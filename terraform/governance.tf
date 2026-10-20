@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # Tableflow: vessel tracks, risk state and incidents as Iceberg tables in
-# Confluent-managed storage, for replay and analysis with any Iceberg engine.
+# Confluent-managed storage, for analysis with any Iceberg engine.
 # ---------------------------------------------------------------------------
 resource "confluent_api_key" "tableflow" {
   display_name = "${var.environment_name}-tableflow"
@@ -90,6 +90,13 @@ resource "confluent_tag" "tag" {
   }
 }
 
+# On destroy, the catalog takes a while to notice the bindings are gone; deleting
+# a tag straight after its last binding fails with 409 Conflict.
+resource "time_sleep" "tag_unbind" {
+  destroy_duration = "60s"
+  depends_on       = [confluent_tag.tag]
+}
+
 # The catalog picks up new topics asynchronously.
 resource "time_sleep" "catalog_sync" {
   create_duration = "90s"
@@ -112,5 +119,5 @@ resource "confluent_tag_binding" "topic" {
     secret = local.sr_auth.secret
   }
 
-  depends_on = [time_sleep.catalog_sync]
+  depends_on = [time_sleep.catalog_sync, time_sleep.tag_unbind]
 }

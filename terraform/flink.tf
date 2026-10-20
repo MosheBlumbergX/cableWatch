@@ -84,13 +84,22 @@ locals {
     } : {},
   )
 
-  # Per-statement settings. Dedupe keys include the position, so without a TTL
-  # its state would grow with every fix ever received.
+  # Per-statement settings.
+  #  - Dedupe keys include the position, so without a TTL its state would grow
+  #    with every fix ever received.
+  #  - The cable lookups join against cable_cells, whose watermark is a century
+  #    ahead (00_alter_cable_cells.sql). Idleness detection must be off for them:
+  #    if vessel_fixes were ever marked idle (as it is before the producer
+  #    starts), the join's watermark would jump to the cable_cells one, and every
+  #    later fix would be dropped as late.
+  no_idleness = { "sql.tables.scan.idle-timeout" = "0 ms" }
   statement_properties = {
-    "cw-clean-dedupe" = { "sql.state-ttl" = "10 min" }
+    "cw-clean-dedupe"  = { "sql.state-ttl" = "10 min" }
+    "cw-geofence-join" = local.no_idleness
+    "cw-detect-dark"   = local.no_idleness
   }
 
-  flink_statement_names = concat(["cw-ddl-raw-watermark"], keys(local.ddl), keys(local.dml), keys(local.dml_payloads))
+  flink_statement_names = concat(["cw-ddl-raw-watermark", "cw-ddl-cable-cells-watermark"], keys(local.ddl), keys(local.dml), keys(local.dml_payloads))
 }
 
 resource "random_id" "ntfy" {
@@ -105,32 +114,6 @@ locals {
 # ---------------------------------------------------------------------------
 # Statements
 # ---------------------------------------------------------------------------
-resource "confluent_flink_statement" "raw_watermark" {
-  statement_name = "cw-ddl-raw-watermark"
-  statement      = file("${local.sql_dir}/00_alter_raw.sql")
-  properties     = local.flink_properties
-
-  organization {
-    id = data.confluent_organization.main.id
-  }
-  environment {
-    id = confluent_environment.cw.id
-  }
-  compute_pool {
-    id = confluent_flink_compute_pool.cw.id
-  }
-  principal {
-    id = confluent_service_account.app.id
-  }
-  rest_endpoint = data.confluent_flink_region.cw.rest_endpoint
-  credentials {
-    key    = confluent_api_key.flink.id
-    secret = confluent_api_key.flink.secret
-  }
-
-  depends_on = [confluent_schema.raw_value, confluent_api_key.kafka, confluent_api_key.schema_registry]
-}
-
 resource "confluent_flink_statement" "ddl" {
   for_each = local.ddl
 
@@ -157,6 +140,44 @@ resource "confluent_flink_statement" "ddl" {
   }
 
   depends_on = [confluent_api_key.kafka, confluent_api_key.schema_registry]
+}
+
+# Watermark changes that CREATE TABLE cannot express: the raw topic is created by
+# Terraform, and $rowtime watermarks can only be set with ALTER.
+resource "confluent_flink_statement" "ddl_alter" {
+  for_each = {
+    "cw-ddl-raw-watermark"         = file("${local.sql_dir}/00_alter_raw.sql")
+    "cw-ddl-cable-cells-watermark" = file("${local.sql_dir}/00_alter_cable_cells.sql")
+  }
+
+  statement_name = each.key
+  statement      = each.value
+  properties     = local.flink_properties
+
+  organization {
+    id = data.confluent_organization.main.id
+  }
+  environment {
+    id = confluent_environment.cw.id
+  }
+  compute_pool {
+    id = confluent_flink_compute_pool.cw.id
+  }
+  principal {
+    id = confluent_service_account.app.id
+  }
+  rest_endpoint = data.confluent_flink_region.cw.rest_endpoint
+  credentials {
+    key    = confluent_api_key.flink.id
+    secret = confluent_api_key.flink.secret
+  }
+
+  depends_on = [confluent_schema.raw_value, confluent_flink_statement.ddl]
+}
+
+moved {
+  from = confluent_flink_statement.raw_watermark
+  to   = confluent_flink_statement.ddl_alter["cw-ddl-raw-watermark"]
 }
 
 # ---------------------------------------------------------------------------
@@ -243,7 +264,7 @@ resource "confluent_flink_statement" "dml" {
     secret = confluent_api_key.flink.secret
   }
 
-  depends_on = [confluent_flink_statement.raw_watermark, confluent_flink_statement.ddl, confluent_flink_statement.model]
+  depends_on = [confluent_flink_statement.ddl_alter, confluent_flink_statement.ddl, confluent_flink_statement.model]
 }
 
 resource "confluent_flink_statement" "dml_payloads" {

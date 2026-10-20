@@ -1,5 +1,6 @@
 -- Turn score changes into incidents: entering WATCH, entering ALERT (TRIGGER) and
 -- dropping back to NORMAL (RESOLVE). Enriched with the vessel's latest static data.
+-- Relies on risk_updates' 2-minute watermark allowance (see its CREATE TABLE).
 INSERT INTO `incidents`
 SELECT
   `mmsi`,
@@ -19,9 +20,7 @@ SELECT
   `lon`,
   `sog`,
   `distance_km`,
-  `replay`,
   CONCAT(
-    CASE WHEN `replay` THEN '[REPLAY] ' ELSE '' END,
     `vessel_name`, ' ',
     CASE
       WHEN `action` = 'RESOLVE'  THEN 'clear of '
