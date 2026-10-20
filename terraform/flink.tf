@@ -51,9 +51,13 @@ locals {
       "cw-detect-anchor-drag" = file("${local.sql_dir}/23_insert_drag_events.sql")
       "cw-detect-dark"        = file("${local.sql_dir}/24_insert_dark_events.sql")
       "cw-risk-signals"       = file("${local.sql_dir}/25_insert_risk_signals.sql")
-      "cw-risk-score"         = file("${local.sql_dir}/26_insert_risk_score.sql")
-      "cw-vessel-risk"        = file("${local.sql_dir}/28_insert_vessel_risk.sql")
-      "cw-incidents"          = file("${local.sql_dir}/29_insert_incidents.sql")
+      "cw-risk-score" = templatefile("${local.sql_dir}/26_insert_risk_score.sql.tftpl", {
+        flags  = var.watch_flags
+        points = var.watch_points
+        repeat = var.watch_repeat_signals
+      })
+      "cw-vessel-risk" = file("${local.sql_dir}/28_insert_vessel_risk.sql")
+      "cw-incidents"   = file("${local.sql_dir}/29_insert_incidents.sql")
     },
     local.llm_enabled ? {
       "cw-incident-briefs" = file("${local.sql_dir}/32_insert_incident_briefs.sql")
@@ -64,22 +68,25 @@ locals {
   dml_payloads = merge(
     {
       "cw-payload-ntfy" = templatefile("${local.sql_dir}/40_insert_ntfy_events.sql.tftpl", {
-        ntfy_topic    = local.ntfy_topic
-        dashboard_url = local.dashboard_url
-        source        = local.incident_source
+        ntfy_topic      = local.ntfy_topic
+        dashboard_url   = local.dashboard_url
+        source          = local.incident_source
+        include_service = var.notify_service_vessels ? "TRUE" : "FALSE"
       })
     },
     local.pagerduty_enabled ? {
       "cw-payload-pagerduty" = templatefile("${local.sql_dir}/41_insert_pagerduty_events.sql.tftpl", {
-        routing_key   = var.pagerduty_routing_key
-        dashboard_url = local.dashboard_url
-        source        = local.incident_source
+        routing_key     = var.pagerduty_routing_key
+        dashboard_url   = local.dashboard_url
+        source          = local.incident_source
+        include_service = var.notify_service_vessels ? "TRUE" : "FALSE"
       })
     } : {},
     local.slack_enabled ? {
       "cw-payload-slack" = templatefile("${local.sql_dir}/42_insert_slack_events.sql.tftpl", {
-        dashboard_url = local.dashboard_url
-        source        = local.incident_source
+        dashboard_url   = local.dashboard_url
+        source          = local.incident_source
+        include_service = var.notify_service_vessels ? "TRUE" : "FALSE"
       })
     } : {},
   )

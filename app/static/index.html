@@ -18,15 +18,19 @@
   <header class="masthead">
     <h1>Cable Watch</h1>
     <p class="lede">Every ship in the Baltic, scored live against the subsea cables and pipelines beneath it.</p>
-    <dl class="counts">
-      <div><dt>Vessels tracked</dt><dd id="count-vessels">0</dd></div>
-      <div><dt>Over a cable now</dt><dd id="count-corridor">0</dd></div>
-      <div><dt>On watch</dt><dd id="count-watch">0</dd></div>
-      <div><dt>Gone silent</dt><dd id="count-dark">0</dd></div>
-    </dl>
+    <div class="counts" role="group" aria-label="Show vessels">
+      <button type="button" class="stat" data-mode="tracked" aria-pressed="false"><span class="num" id="count-vessels">0</span><span class="label">Vessels tracked</span></button>
+      <button type="button" class="stat" data-mode="corridor" aria-pressed="false"><span class="num" id="count-corridor">0</span><span class="label">Over a cable now</span></button>
+      <button type="button" class="stat stat-watch" data-mode="watch" aria-pressed="false"><span class="num" id="count-watch">0</span><span class="label">On watch</span></button>
+      <button type="button" class="stat stat-dark" data-mode="dark" aria-pressed="false"><span class="num" id="count-dark">0</span><span class="label">Gone silent</span></button>
+    </div>
   </header>
 
   <div class="controls">
+    <label class="toggle">
+      <input type="checkbox" id="include-service">
+      Include pilot boats, tugs, rescue and police vessels
+    </label>
     <details class="subscribe" id="subscribe" hidden>
       <summary>Get incident alerts on your phone</summary>
       <div class="subscribe-body">
@@ -37,15 +41,27 @@
   </div>
 
   <aside class="log" aria-labelledby="log-title">
-    <h2 id="log-title">Incident log</h2>
+    <div class="log-head">
+      <h2 id="log-title">Incident log</h2>
+      <button type="button" id="list-back" class="list-back" hidden>Back to incident log</button>
+    </div>
+    <input type="search" id="list-search" class="list-search" placeholder="Search by name or MMSI" aria-label="Search vessels" hidden>
+    <ul id="vessel-list" class="vessel-list" hidden></ul>
+    <p id="vessel-list-note" class="empty" hidden></p>
     <ol id="incidents" class="incidents"></ol>
     <p id="incidents-empty" class="empty">No incidents in the last day. A vessel is scored when it loiters, drags anchor or falls silent over a cable corridor; the first signal raises a watch.</p>
   </aside>
 
   <aside id="vessel" class="vessel" aria-labelledby="vessel-name" hidden>
     <button type="button" class="close" id="vessel-close" aria-label="Close vessel panel">×</button>
-    <h2 id="vessel-name"></h2>
+    <h2><button type="button" id="vessel-name" class="vessel-name" title="Show current position"></button></h2>
     <p id="vessel-meta" class="vessel-meta"></p>
+    <button type="button" id="vessel-locate" class="locate">Show current position</button>
+    <section>
+      <h3>What kind of ship is this?</h3>
+      <p id="vessel-about" class="vessel-about"></p>
+      <ul id="vessel-facts" class="rows"></ul>
+    </section>
     <figure class="spark">
       <svg id="spark" viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="Speed over ground, recent fixes"></svg>
       <figcaption id="spark-caption"></figcaption>
@@ -65,14 +81,15 @@
   </aside>
 
   <footer class="pipeline" aria-label="Data pipeline">
-    <a id="lineage" class="pipeline-link" target="_blank" rel="noopener" title="Open Stream Lineage in Confluent Cloud">
+    <a id="pipeline-link" class="pipeline-link" target="_blank" rel="noopener" title="How the pipeline is built: source on GitHub">
       <ol id="pipeline" class="flow"></ol>
     </a>
     <p class="credits">
+      <span id="repo-credit" hidden><a id="repo" target="_blank" rel="noopener">Source on GitHub</a>.</span>
+      Built on <a href="https://www.confluent.io/confluent-cloud/" target="_blank" rel="noopener">Confluent Cloud</a>: Kafka, Flink SQL, HTTP Sink, Tableflow.
       AIS from <a href="https://aisstream.io" target="_blank" rel="noopener">aisstream.io</a>.
-      Cable routes © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
-      Built on Confluent Cloud: Kafka, Flink SQL, HTTP Sink, Tableflow.
-      <a id="repo" target="_blank" rel="noopener" hidden>Source</a>
+      Cable routes and base map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors,
+      © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>.
     </p>
   </footer>
 

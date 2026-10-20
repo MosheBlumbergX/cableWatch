@@ -1,14 +1,31 @@
-# Copy to terraform.tfvars (git-ignored) and adjust.
+# Copy to terraform.tfvars (git-ignored) and adjust. Every setting is optional.
 
 # AWS CLI profile to deploy the dashboard host with. Leave unset to use the
 # default credential chain (AWS_PROFILE, environment variables, SSO, ...).
 # aws_profile = "my-profile"
 
-# aws_region = "eu-central-1"   # keep it in the same region as the Kafka cluster
 # region     = "eu-central-1"   # Confluent Cloud region (Kafka + Flink)
+# aws_region = "eu-central-1"   # keep the dashboard host in the same region
 
-# Fixed ntfy topic instead of a random one (anyone who knows it can subscribe).
+# A fixed ntfy topic, so phone subscriptions survive a rebuild. Anyone who knows
+# the name can subscribe; the default is a random cablewatch-<hex>.
 # ntfy_topic = "cablewatch-demo"
+
+# Also notify for pilot vessels, tugs, search-and-rescue and law-enforcement
+# vessels (they wait over cables as part of their job, so they are off by default).
+# notify_service_vessels = true
+
+# Watch list: flags (name => ITU MIDs, the first three digits of the MMSI), the
+# points per reason, and the repeat-offender threshold. See README.
+# watch_flags = {
+#   "Cook Islands" = [518]
+#   "Palau"        = [511]
+# }
+# watch_points         = 15
+# watch_repeat_signals = 3
+
+# tableflow_enabled = false     # skip the Iceberg tables
+# repo_url          = ""        # hide the source link on the dashboard
 
 # Extra tags on every AWS resource, if your organisation's tagging policy requires them.
 # aws_tags = {

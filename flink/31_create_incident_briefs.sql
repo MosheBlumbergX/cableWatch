@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS `incident_briefs` (
   `signal`         STRING,
   `cable_name`     STRING,
   `vessel_name`    STRING,
+  `vessel_type`    STRING,
   `lat`            DOUBLE,
   `lon`            DOUBLE,
   `summary`        STRING,

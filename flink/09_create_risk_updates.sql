@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS `risk_updates` (
   `lon`          DOUBLE,
   `distance_km`  DOUBLE,
   `sog`          DOUBLE,
+  `watch_points` INT,
+  `watch_reason` STRING,
   WATERMARK FOR `event_time` AS `event_time` - INTERVAL '2' MINUTE
 )
 DISTRIBUTED BY HASH(`mmsi`, `cable_id`) INTO 1 BUCKETS

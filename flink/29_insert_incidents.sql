@@ -47,6 +47,8 @@ SELECT
     'Risk score ', CAST(`score` AS STRING), ' in the last hour from ',
     CAST(`loiter_count` AS STRING), ' loiter, ', CAST(`drag_count` AS STRING), ' drag and ',
     CAST(`dark_count` AS STRING), ' dark signal(s)',
+    CASE WHEN `watch_reason` IS NOT NULL
+         THEN CONCAT(', plus ', CAST(`watch_points` AS STRING), ' watch-list points (', `watch_reason`, ')') ELSE '' END,
     CASE WHEN `destination` IS NOT NULL AND `destination` <> '' THEN CONCAT('; declared destination ', `destination`) ELSE '' END,
     '.')
   END AS `brief`,
@@ -59,8 +61,10 @@ SELECT
     'Signals in the last hour: ', CAST(`loiter_count` AS STRING), ' x loitering (under 2 kn for 20 min), ',
     CAST(`drag_count` AS STRING), ' x anchor drag, ', CAST(`dark_count` AS STRING), ' x AIS went silent. ',
     'Risk score: ', CAST(`score` AS STRING), ' (', `state`, '). ',
+    'Watch list: ', COALESCE(`watch_reason`, 'none'), '. ',
     'Destination: ', COALESCE(`destination`, 'unknown'), '.'
-  ) AS `prompt`
+  ) AS `prompt`,
+  `watch_reason`
 FROM (
   SELECT
     r.*,

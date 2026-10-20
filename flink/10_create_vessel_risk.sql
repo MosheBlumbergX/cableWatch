@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS `vessel_risk` (
   `dark_count`   INT,
   `lat`          DOUBLE,
   `lon`          DOUBLE,
+  `watch_points` INT,
+  `watch_reason` STRING,
   PRIMARY KEY (`mmsi`, `cable_id`) NOT ENFORCED
 )
 DISTRIBUTED BY HASH(`mmsi`, `cable_id`) INTO 1 BUCKETS

@@ -3,7 +3,7 @@
 INSERT INTO `incident_briefs`
 SELECT
   i.`mmsi`, i.`cable_id`, i.`event_time`, i.`action`, i.`state`, i.`score`, i.`signal`,
-  i.`cable_name`, i.`vessel_name`, i.`lat`, i.`lon`, i.`summary`,
+  i.`cable_name`, i.`vessel_name`, i.`vessel_type`, i.`lat`, i.`lon`, i.`summary`,
   CASE WHEN i.`action` = 'RESOLVE' THEN i.`brief` ELSE COALESCE(p.`brief`, i.`brief`) END,
   i.`brief`
 FROM `incidents` AS i,

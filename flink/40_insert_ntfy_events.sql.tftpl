@@ -12,4 +12,6 @@ SELECT JSON_OBJECT(
   KEY 'click'    VALUE CONCAT('${dashboard_url}/?mmsi=', CAST(`mmsi` AS STRING))
 )
 FROM `${source}`
-WHERE `event_time` > CURRENT_TIMESTAMP - INTERVAL '30' MINUTE;
+WHERE `event_time` > CURRENT_TIMESTAMP - INTERVAL '30' MINUTE
+  -- Service craft wait over cables as part of their job (notify_service_vessels).
+  AND (${include_service} OR COALESCE(`vessel_type`, '') NOT IN ('pilot vessel', 'tug', 'search and rescue vessel', 'law enforcement vessel'));

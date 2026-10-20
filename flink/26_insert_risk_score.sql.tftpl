@@ -1,0 +1,118 @@
+-- Score per vessel and cable, written by one statement so that risk_updates has
+-- a single writer. (Two jobs writing one topic commit their transactions at
+-- different checkpoints; their rows interleave out of event-time order and the
+-- incident statement downstream drops the "late" ones.)
+--
+-- 1. Running score: the points of every signal in the last hour, plus watch-list
+--    points (below). NORMAL under 30, WATCH 30-59, ALERT 60+. Heartbeat rows
+--    (mmsi 0) pass through with score 0, which keeps risk_updates' watermark moving.
+-- 2. Decay: once a vessel has raised no signal over a cable for an hour, its
+--    score drops to zero. A session window with a one-hour gap closes at exactly
+--    that moment and emits a CLEAR.
+--
+-- Watch list: ${points} points per reason, and only on top of a behavioural signal
+-- in the last hour, so no vessel is ever raised for who it is alone.
+--   - flag: the MMSI's Maritime Identification Digits are on the flag list
+--   - type: a tanker, or a cargo ship broadcasting no destination
+--   - repeat: ${repeat} or more earlier signals over any cable in the past 7 days
+-- Pilot vessels, tugs, search and rescue and law enforcement never get any.
+INSERT INTO `risk_updates`
+SELECT
+  `mmsi`,
+  `cable_id`,
+  `cable_name`,
+  `ship_name`,
+  `event_time`,
+  `signal`,
+  `points`,
+  CAST(`score` AS INT),
+  CASE WHEN `score` >= 60 THEN 'ALERT' WHEN `score` >= 30 THEN 'WATCH' ELSE 'NORMAL' END,
+  CAST(`loiters` AS INT),
+  CAST(`drags` AS INT),
+  CAST(`darks` AS INT),
+  `lat`,
+  `lon`,
+  `distance_km`,
+  `sog`,
+  CAST(`watch_points` AS INT),
+  `watch_reason`
+FROM (
+  SELECT *, `base_score` + `watch_points` AS `score`
+  FROM (
+    SELECT *,
+      CASE WHEN `base_score` > 0 THEN ${points} * `reason_count` ELSE 0 END AS `watch_points`,
+      CASE WHEN `base_score` > 0 AND `reason_count` > 0
+           THEN SUBSTRING(`reasons`, 1, CHAR_LENGTH(`reasons`) - 2) END AS `watch_reason`
+    FROM (
+      SELECT *,
+        CONCAT(
+          COALESCE(CONCAT('flag ', `watch_flag`, '; '), ''),
+          COALESCE(CONCAT(`watch_type`, '; '), ''),
+          COALESCE(CONCAT('repeat (', CAST(`earlier` AS STRING), ' signals in 7 days); '), '')
+        ) AS `reasons`,
+        CASE WHEN `watch_flag` IS NOT NULL THEN 1 ELSE 0 END
+          + CASE WHEN `watch_type` IS NOT NULL THEN 1 ELSE 0 END
+          + CASE WHEN `earlier` IS NOT NULL THEN 1 ELSE 0 END AS `reason_count`
+      FROM (
+        SELECT *,
+          SUM(`points`) OVER w                                        AS `base_score`,
+          SUM(CASE WHEN `signal` = 'LOITER' THEN 1 ELSE 0 END) OVER w AS `loiters`,
+          SUM(CASE WHEN `signal` = 'DRAG' THEN 1 ELSE 0 END) OVER w   AS `drags`,
+          SUM(CASE WHEN `signal` = 'DARK' THEN 1 ELSE 0 END) OVER w   AS `darks`,
+          -- Signals this week that are not part of the current hour over this cable.
+          CASE WHEN NOT `service` AND `week_signals` - COUNT(*) OVER w >= ${repeat}
+               THEN `week_signals` - COUNT(*) OVER w END              AS `earlier`
+        FROM (
+          SELECT
+            r.`mmsi`, r.`cable_id`, r.`cable_name`, r.`ship_name`, r.`event_time`, r.`signal`, r.`points`,
+            r.`lat`, r.`lon`, r.`distance_km`, r.`sog`,
+            COALESCE(v.`ship_type` IN (31, 32, 50, 51, 52, 55), FALSE) AS `service`,
+            CASE
+              WHEN COALESCE(v.`ship_type` IN (31, 32, 50, 51, 52, 55), FALSE) THEN CAST(NULL AS STRING)
+%{ for name, mids in flags ~}
+              WHEN r.`mmsi` BETWEEN 200000000 AND 799999999 AND CAST(r.`mmsi` / 1000000 AS INT) IN (${join(", ", mids)}) THEN '${name}'
+%{ endfor ~}
+            END AS `watch_flag`,
+            CASE
+              WHEN v.`ship_type` BETWEEN 80 AND 89 THEN 'tanker'
+              WHEN v.`ship_type` BETWEEN 70 AND 79 AND COALESCE(TRIM(v.`destination`), '') = '' THEN 'cargo ship with no declared destination'
+            END AS `watch_type`,
+            COUNT(*) OVER (
+              PARTITION BY r.`mmsi` ORDER BY r.`event_time`
+              RANGE BETWEEN INTERVAL '7' DAY PRECEDING AND CURRENT ROW) AS `week_signals`
+          FROM `risk_signals` AS r
+          LEFT JOIN `vessel_static` FOR SYSTEM_TIME AS OF r.`event_time` AS v
+            ON r.`mmsi` = v.`mmsi`
+        )
+        WINDOW w AS (
+          PARTITION BY `mmsi`, `cable_id`
+          ORDER BY `event_time`
+          RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW)
+      )
+    )
+  )
+)
+UNION ALL
+SELECT
+  `mmsi`,
+  `cable_id`,
+  MAX(`cable_name`),
+  MAX(`ship_name`),
+  `window_time`,
+  CAST('CLEAR' AS STRING),
+  0,
+  0,
+  CAST('NORMAL' AS STRING),
+  0,
+  0,
+  0,
+  CAST(NULL AS DOUBLE),
+  CAST(NULL AS DOUBLE),
+  CAST(NULL AS DOUBLE),
+  CAST(NULL AS DOUBLE),
+  0,
+  CAST(NULL AS STRING)
+FROM TABLE(
+  SESSION(TABLE `risk_signals` PARTITION BY (`mmsi`, `cable_id`), DESCRIPTOR(`event_time`), INTERVAL '1' HOUR))
+WHERE `signal` <> 'HEARTBEAT'
+GROUP BY `mmsi`, `cable_id`, `window_start`, `window_end`, `window_time`;

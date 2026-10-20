@@ -27,7 +27,19 @@ const vessels = new Map();   // mmsi -> row
 const risk = new Map();      // "mmsi|cable" -> row
 const dark = new Map();      // mmsi -> row
 const incidentKeys = new Set();
+// Service craft (pilots, tugs, rescue, police) wait over cables as part of their
+// job, so they are left out unless the viewer asks for them.
+let includeService = localStorage.getItem("cw-include-service") === "1";
+const counts = (r) => includeService || !r.service;
+// A score only counts signals from the last hour, so a risk state older than that
+// is NORMAL by definition, whether or not its CLEAR has arrived yet.
+const RISK_TTL_MS = 65 * 60 * 1000;
+const active = (r) => r.state !== "NORMAL" && now - r.t < RISK_TTL_MS;
+let listMode = null;   // null = incident log; else "tracked" | "corridor" | "watch" | "dark"
+let listSearch = "";
+let listKey = "";      // what the list last rendered, to avoid rebuilding it every second
 let selected = null;
+let selectedPos = null;  // [lon, lat] of the selected vessel's latest fix (or last-seen position if dark)
 let mapReady = false;
 let now = Date.now();
 
@@ -49,7 +61,7 @@ const map = new maplibregl.Map({
   fitBoundsOptions: { padding: { top: 40, bottom: 110, left: 390, right: 40 } },
   minZoom: 3,
   maxZoom: 13,
-  attributionControl: { compact: true },
+  attributionControl: false, // credited in the footer, which keeps the zoom buttons clear
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
@@ -151,6 +163,13 @@ map.once("style.load", async () => {
     paint: { "line-color": COLORS.corridor, "line-width": 1.5, "line-opacity": 0.7, "line-dasharray": [1, 1.5] },
   });
 
+  // A ring around the selected vessel, so "Show current position" lands somewhere visible.
+  map.addSource("selected", { type: "geojson", data: empty() });
+  map.addLayer({
+    id: "selected", type: "circle", source: "selected",
+    paint: { "circle-radius": 14, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": COLORS.corridor, "circle-stroke-width": 1.5 },
+  });
+
   map.addSource("ghosts", { type: "geojson", data: empty() });
   map.addLayer({
     id: "ghosts", type: "circle", source: "ghosts",
@@ -187,20 +206,31 @@ map.once("style.load", async () => {
         [">=", ["get", "score"], 30], COLORS.amber,
         ["get", "corridor"], COLORS.corridor,
         COLORS.contact],
-      "icon-opacity": ["case", ["get", "stale"], 0.25, ["get", "corridor"], 1, 0.6],
+      "icon-opacity": ["case", ["get", "dim"], 0.08, ["get", "stale"], 0.25, ["get", "corridor"], 1, 0.6],
     },
   });
   map.addLayer({
     id: "vessel-labels", type: "symbol", source: "vessels",
     filter: [">", ["get", "score"], 0],
     layout: {
-      "text-field": ["get", "name"], "text-size": 12, "text-font": ["Open Sans Semibold"],
+      "text-field": ["get", "name"], "text-size": 12, "text-font": ["Montserrat Medium", "Open Sans Bold"], // fonts the CARTO glyph server has
       "text-offset": [0, 1.3], "text-anchor": "top",
     },
     paint: {
       "text-color": ["case", [">=", ["get", "score"], 60], COLORS.red, COLORS.amber],
       "text-halo-color": COLORS.water, "text-halo-width": 1.5,
     },
+  });
+
+  // The selected vessel's own name, above the other labels: placed first, it wins
+  // when ships share a spot (two pilot boats at one station, say).
+  map.addLayer({
+    id: "selected-label", type: "symbol", source: "selected",
+    layout: {
+      "text-field": ["get", "name"], "text-size": 12, "text-font": ["Montserrat Medium", "Open Sans Bold"],
+      "text-offset": [0, 1.5], "text-anchor": "top", "text-allow-overlap": true,
+    },
+    paint: { "text-color": COLORS.corridor, "text-halo-color": COLORS.water, "text-halo-width": 1.5 },
   });
 
   const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
@@ -212,8 +242,8 @@ map.once("style.load", async () => {
     ).addTo(map);
   });
   map.on("mouseleave", "vessels", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
-  map.on("click", "vessels", (e) => openVessel(Number(e.features[0].properties.mmsi)));
-  map.on("click", "ghosts", (e) => openVessel(Number(e.features[0].properties.mmsi)));
+  map.on("click", "vessels", (e) => openVessel(Number(e.features[0].properties.mmsi), true));
+  map.on("click", "ghosts", (e) => openVessel(Number(e.features[0].properties.mmsi), true));
   map.on("mousemove", "cable-glow", (e) => {
     if (map.queryRenderedFeatures(e.point, { layers: ["vessels"] }).length) return;
     const p = e.features[0].properties;
@@ -245,13 +275,26 @@ function pulse(t) {
 // ---------------------------------------------------------------------------
 let cableStates = new Map();
 
-function redraw() {
-  const watch = new Set([...risk.values()].filter((r) => r.state !== "NORMAL").map((r) => r.mmsi));
+// The vessels behind each counter; the counters, the list and the map dimming all use these.
+function vesselSets() {
   const live = [...vessels.values()].filter((v) => now - v.t < STALE_MS && !dark.has(v.mmsi));
-  $("count-vessels").textContent = live.length.toLocaleString();
-  $("count-corridor").textContent = live.filter((v) => v.corridor).length;
-  $("count-watch").textContent = watch.size;
-  $("count-dark").textContent = dark.size;
+  const watch = new Set([...risk.values()].filter((r) => active(r) && counts(r)).map((r) => r.mmsi));
+  return {
+    tracked: new Set(live.map((v) => v.mmsi)),
+    corridor: new Set(live.filter((v) => v.corridor).map((v) => v.mmsi)),
+    watch,
+    dark: new Set(dark.keys()),
+  };
+}
+
+function redraw() {
+  const sets = vesselSets();
+  $("count-vessels").textContent = sets.tracked.size.toLocaleString();
+  $("count-corridor").textContent = sets.corridor.size;
+  $("count-watch").textContent = sets.watch.size;
+  $("count-dark").textContent = sets.dark.size;
+  renderList(sets);
+  const focus = listMode && listMode !== "tracked" ? sets[listMode] : null;
   if (!mapReady) return;
 
   const features = [];
@@ -262,8 +305,8 @@ function redraw() {
       type: "Feature",
       geometry: { type: "Point", coordinates: [v.lon, v.lat] },
       properties: {
-        mmsi: v.mmsi, sog: v.sog, hdg: v.hdg, nav: v.nav, score: v.score, corridor: !!v.corridor,
-        stale, name: v.name || `MMSI ${v.mmsi}`,
+        mmsi: v.mmsi, sog: v.sog, hdg: v.hdg, nav: v.nav, score: counts(v) ? v.score : 0, corridor: !!v.corridor,
+        stale, dim: !!focus && !focus.has(v.mmsi), name: v.name || `MMSI ${v.mmsi}`,
       },
     });
   }
@@ -281,7 +324,7 @@ function redraw() {
   // Corridor state = worst open state of any vessel over that cable.
   const next = new Map();
   for (const r of risk.values()) {
-    if (r.state === "NORMAL") continue;
+    if (!active(r) || !counts(r)) continue;
     if (next.get(r.cable_id) !== "ALERT") next.set(r.cable_id, r.state);
   }
   for (const id of cableStates.keys()) if (!next.has(id)) map.removeFeatureState({ source: "cables", id }, "state");
@@ -312,7 +355,7 @@ function addIncident(i) {
   if (existing) { existing.innerHTML = html; return; }
   incidentKeys.add(key);
   const li = document.createElement("li");
-  li.className = "incident" + (incidentKeys.size > 1 && Date.now() - i.t < 120000 ? " fresh" : "");
+  li.className = "incident" + (i.service ? " service" : "") + (incidentKeys.size > 1 && Date.now() - i.t < 120000 ? " fresh" : "");
   li.dataset.key = key;
   li.dataset.t = i.t;
   li.tabIndex = 0;
@@ -322,8 +365,102 @@ function addIncident(i) {
   const list = $("incidents");
   const after = [...list.children].find((c) => Number(c.dataset.t) < i.t);
   list.insertBefore(li, after || null);
-  $("incidents-empty").hidden = true;
+  updateEmpty();
 }
+
+function updateEmpty() {
+  if (listMode) return;
+  const visible = [...$("incidents").children].some((li) => includeService || !li.classList.contains("service"));
+  $("incidents-empty").hidden = visible;
+}
+
+function applyServiceToggle() {
+  document.body.classList.toggle("hide-service", !includeService);
+  $("include-service").checked = includeService;
+  updateEmpty();
+  redraw();
+}
+$("include-service").addEventListener("change", (e) => {
+  includeService = e.target.checked;
+  localStorage.setItem("cw-include-service", includeService ? "1" : "0");
+  applyServiceToggle();
+});
+
+// ---------------------------------------------------------------------------
+// Vessel lists behind the counters
+// ---------------------------------------------------------------------------
+const LIST_TITLES = { tracked: "Vessels tracked", corridor: "Over a cable now", watch: "On watch", dark: "Gone silent" };
+const LIST_CAP = 300;
+
+function listRows(mode, sets) {
+  const name = (m) => vessels.get(m)?.name || dark.get(m)?.name || `MMSI ${m}`;
+  if (mode === "dark") {
+    return [...dark.values()].sort((a, b) => a.last_seen - b.last_seen).map((d) => ({
+      mmsi: d.mmsi, name: name(d.mmsi), detail: `silent ${ago(d.last_seen)}, ${d.distance_km} km from ${d.cable_name}`,
+    }));
+  }
+  if (mode === "watch") {
+    const best = new Map();
+    for (const r of risk.values()) {
+      if (!sets.watch.has(r.mmsi) || !active(r)) continue;
+      if (!best.has(r.mmsi) || r.score > best.get(r.mmsi).score) best.set(r.mmsi, r);
+    }
+    return [...best.values()].sort((a, b) => b.score - a.score).map((r) => ({
+      mmsi: r.mmsi, name: name(r.mmsi), score: r.score, state: r.state,
+      detail: `${r.cable_name}${r.watch ? `, watch list: ${r.watch}` : ""}`,
+    }));
+  }
+  return [...sets[mode]].map((m) => vessels.get(m)).sort((a, b) => (a.name || "~").localeCompare(b.name || "~")).map((v) => ({
+    mmsi: v.mmsi, name: name(v.mmsi), detail: `${v.sog} kn, ${NAV_STATUS[v.nav] || "status unknown"}`,
+  }));
+}
+
+function renderList(sets) {
+  if (!listMode) return;
+  let rows = listRows(listMode, sets);
+  const q = listSearch.trim().toLowerCase();
+  if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q) || String(r.mmsi).includes(q));
+  const shown = rows.slice(0, LIST_CAP);
+  const key = listMode + "|" + q + "|" + shown.map((r) => `${r.mmsi}:${r.detail}:${r.score ?? ""}`).join(",");
+  if (key === listKey) return;
+  listKey = key;
+  $("vessel-list").innerHTML = shown.map((r) => `
+    <li tabindex="0" data-mmsi="${r.mmsi}">
+      <span><span class="vname">${esc(r.name)}</span><br><span class="muted">${esc(r.detail)}</span></span>
+      ${r.score != null ? `<span class="num state-${esc(r.state)}">${r.score}</span>` : ""}
+    </li>`).join("");
+  const note = rows.length === 0 ? (q ? "No vessel matches that search." : "None right now.")
+    : rows.length > LIST_CAP ? `Showing ${LIST_CAP} of ${rows.length.toLocaleString()}. Search to narrow it down.` : "";
+  $("vessel-list-note").textContent = note;
+  $("vessel-list-note").hidden = !note;
+}
+
+function setListMode(mode) {
+  listMode = mode === listMode ? null : mode;
+  listKey = "";
+  listSearch = "";
+  $("list-search").value = "";
+  for (const b of document.querySelectorAll(".stat")) b.setAttribute("aria-pressed", String(b.dataset.mode === listMode));
+  $("log-title").textContent = listMode ? LIST_TITLES[listMode] : "Incident log";
+  $("list-back").hidden = !listMode;
+  $("list-search").hidden = listMode !== "tracked";
+  $("vessel-list").hidden = !listMode;
+  $("vessel-list-note").hidden = true;
+  $("incidents").hidden = !!listMode;
+  if (listMode) $("incidents-empty").hidden = true; else updateEmpty();
+  redraw();
+}
+for (const b of document.querySelectorAll(".stat")) b.addEventListener("click", () => setListMode(b.dataset.mode));
+$("list-back").addEventListener("click", () => setListMode(null));
+$("list-search").addEventListener("input", (e) => { listSearch = e.target.value; listKey = ""; redraw(); });
+$("vessel-list").addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-mmsi]");
+  if (li) openVessel(Number(li.dataset.mmsi), true);
+});
+$("vessel-list").addEventListener("keydown", (e) => {
+  const li = e.target.closest("li[data-mmsi]");
+  if (li && e.key === "Enter") openVessel(Number(li.dataset.mmsi), true);
+});
 
 // ---------------------------------------------------------------------------
 // Vessel panel
@@ -341,9 +478,28 @@ async function openVessel(mmsi, fly = false, at = null) {
   panel.hidden = false;
   $("vessel-name").textContent = d.name || `MMSI ${mmsi}`;
   const last = d.track[d.track.length - 1];
-  const status = d.dark ? `silent for ${ago(d.dark.last_seen)}, last seen ${d.dark.distance_km} km from ${d.dark.cable_name}`
+  selectedPos = d.dark ? [d.dark.lon, d.dark.lat] : last ? [last[0], last[1]] : null;
+  $("vessel-locate").textContent = d.dark ? "Show last known position" : "Show current position";
+  $("vessel-locate").hidden = !selectedPos;
+  map.getSource("selected")?.setData(selectedPos
+    ? { type: "Feature", geometry: { type: "Point", coordinates: selectedPos },
+        properties: { name: d.name || `MMSI ${mmsi}` } } : empty());
+  const status = d.dark ? `not heard for ${ago(d.dark.last_seen)}, last seen ${d.dark.distance_km} km from ${d.dark.cable_name}. `
+      + "Our receivers (aisstream.io, volunteer stations) have not picked up its AIS since; it may also be out of their range."
     : last ? `${last[2]} kn, ${NAV_STATUS[d.nav] || "status unknown"}, fix at ${hhmm(last[3])} UTC` : "";
   $("vessel-meta").textContent = `MMSI ${mmsi}. ${status}`;
+  $("vessel-about").textContent = d.about;
+  const s = d.static || {};
+  const watch = d.risk.map((r) => r.watch).find(Boolean);
+  const facts = [
+    ["Watch list", watch],
+    ["Flag", d.flag],
+    ["Type", d.type],
+    ["Call sign", s.call_sign],
+    ["Destination", s.destination],
+    ["Draught", s.draught_m ? `${s.draught_m} m` : null],
+  ].filter(([, v]) => v);
+  $("vessel-facts").innerHTML = facts.map(([k, v]) => `<li><span class="muted">${k}</span><span>${esc(v)}</span></li>`).join("");
 
   const sogs = d.track.map((p) => p[2]);
   const max = Math.max(2, ...sogs);
@@ -354,8 +510,9 @@ async function openVessel(mmsi, fly = false, at = null) {
     ? `Speed over the last ${sogs.length} fixes, 0 to ${max.toFixed(1)} kn. Shaded: the 1.5 to 7 kn band where a dragged anchor shows up.`
     : "No recent fixes.";
 
-  $("vessel-risk").innerHTML = d.risk.length ? d.risk.map((r) =>
-    `<li><span>${esc(r.cable_name)}<br><span class="muted">${r.loiter} loiter, ${r.drag} drag, ${r.dark} dark</span></span>
+  $("vessel-risk").innerHTML = d.risk.length ? d.risk.map((r) => (active(r) ? r : { ...r, score: 0, state: "NORMAL" })).map((r) =>
+    `<li><span>${esc(r.cable_name)}<br><span class="muted">${r.loiter} loiter, ${r.drag} drag, ${r.dark} dark${
+       r.watch ? `, +${r.watch_points} watch list (${esc(r.watch)})` : ""}</span></span>
      <span class="num state-${esc(r.state)}">${r.score}</span></li>`).join("")
     : `<li class="muted">Not scored against any cable.</li>`;
   $("vessel-signals").innerHTML = d.signals.length ? d.signals.slice().reverse().map((s) =>
@@ -369,14 +526,20 @@ async function openVessel(mmsi, fly = false, at = null) {
     type: "FeatureCollection",
     features: d.track.length > 1 ? [{ type: "Feature", geometry: { type: "LineString", coordinates: d.track.map((p) => [p[0], p[1]]) } }] : [],
   });
-  if (fly) {
-    const center = d.dark ? [d.dark.lon, d.dark.lat] : last ? [last[0], last[1]] : at;
-    if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 9.5), speed: 1.6 });
-  }
+  if (fly) flyToVessel(at);
 }
+
+function flyToVessel(fallback = null) {
+  const center = selectedPos || fallback;
+  if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 9.5), speed: 1.6 });
+}
+$("vessel-locate").addEventListener("click", () => flyToVessel());
+$("vessel-name").addEventListener("click", () => flyToVessel());
 
 function closeVessel() {
   selected = null;
+  selectedPos = null;
+  map.getSource("selected")?.setData(empty());
   $("vessel").hidden = true;
   map.getSource("track")?.setData(empty());
 }
@@ -395,20 +558,23 @@ async function init() {
     $("ntfy-link").href = cfg.ntfy_url;
     $("ntfy-link").textContent = cfg.ntfy_url.replace(/^https?:\/\//, "");
   }
-  if (cfg.lineage_url) $("lineage").href = cfg.lineage_url;
-  if (cfg.repo_url) { $("repo").href = cfg.repo_url; $("repo").hidden = false; }
+  if (cfg.repo_url) {
+    $("pipeline-link").href = cfg.repo_url;
+    $("repo").href = cfg.repo_url;
+    $("repo-credit").hidden = false;
+  }
 
   const es = new EventSource("/api/stream");
   es.onmessage = (e) => {
     const d = JSON.parse(e.data);
     now = d.now;
-    for (const [mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor] of d.vessels) {
-      vessels.set(mmsi, { mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor });
+    for (const [mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor, service] of d.vessels) {
+      vessels.set(mmsi, { mmsi, lat, lon, sog, hdg, nav, name, t, score, corridor, service: !!service });
     }
     for (const r of d.risk) {
       risk.set(`${r.mmsi}|${r.cable_id}`, r);
       const v = vessels.get(r.mmsi);
-      if (v) v.score = Math.max(...[...risk.values()].filter((x) => x.mmsi === r.mmsi).map((x) => x.score || 0));
+      if (v) v.score = Math.max(0, ...[...risk.values()].filter((x) => x.mmsi === r.mmsi && active(x)).map((x) => x.score || 0));
     }
     for (const g of d.dark) dark.set(g.mmsi, g);
     for (const id of [...dark.keys()]) if (!d.dark_ids.includes(id)) dark.delete(id);
@@ -417,4 +583,5 @@ async function init() {
     redraw();
   };
 }
+applyServiceToggle();
 init();

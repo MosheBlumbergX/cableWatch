@@ -89,8 +89,6 @@ resource "aws_secretsmanager_secret_version" "kafka" {
     SCHEMA_REGISTRY_API_KEY    = confluent_api_key.schema_registry.id
     SCHEMA_REGISTRY_API_SECRET = confluent_api_key.schema_registry.secret
     AISSTREAM_API_KEY          = var.aisstream_api_key
-    CONSOLE_URL                = "https://confluent.cloud/environments/${confluent_environment.cw.id}/flink/statements"
-    LINEAGE_URL                = "https://confluent.cloud/environments/${confluent_environment.cw.id}/clusters/${confluent_kafka_cluster.cw.id}/stream-lineage/stream/topic/incidents"
   })
 }
 

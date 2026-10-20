@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `incidents` (
   `summary`     STRING,
   `brief`       STRING,
   `prompt`      STRING,
+  `watch_reason` STRING,
   WATERMARK FOR `event_time` AS `event_time` - INTERVAL '10' SECOND
 )
 DISTRIBUTED BY HASH(`mmsi`, `cable_id`) INTO 1 BUCKETS

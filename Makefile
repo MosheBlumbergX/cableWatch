@@ -14,7 +14,7 @@ PY ?= python3
 
 help:
 	@echo "make infra      provision Confluent Cloud + AWS hosting, print the dashboard URL"
-	@echo "make url        print the dashboard and ntfy URLs"
+	@echo "make url        print the dashboard, ntfy, Flink console and Stream Lineage links"
 	@echo "make status     show Flink statement status"
 	@echo "make env        write app/.env.app from Terraform outputs, for running the app locally"
 	@echo "make producer   run the AIS producer locally"
@@ -27,7 +27,11 @@ infra:
 	@$(MAKE) -s url
 
 url:
-	@cd terraform && echo "dashboard: $$(terraform output -raw dashboard_url)" && echo "ntfy:      $$(terraform output -raw ntfy_topic)"
+	@cd terraform && \
+	  echo "dashboard: $$(terraform output -raw dashboard_url)" && \
+	  echo "ntfy:      $$(terraform output -raw ntfy_topic)" && \
+	  echo "flink:     $$(terraform output -raw console_url)" && \
+	  echo "lineage:   $$(terraform output -raw lineage_url)"
 
 status:
 	./scripts/flink-status.sh
@@ -42,8 +46,6 @@ env:
 	  echo "SCHEMA_REGISTRY_API_SECRET=$$(terraform output -raw schema_registry_api_secret)"; \
 	  echo "AISSTREAM_API_KEY=$(AISSTREAM_API_KEY)"; \
 	  echo "NTFY_URL=$$(terraform output -raw ntfy_topic)"; \
-	  echo "CONSOLE_URL=$$(terraform output -raw console_url)"; \
-	  echo "LINEAGE_URL=$$(terraform output -raw lineage_url)"; \
 	} > ../app/.env.app && chmod 600 ../app/.env.app && echo "wrote app/.env.app"
 
 producer:
@@ -53,7 +55,7 @@ dashboard:
 	cd app && $(PY) -m uvicorn server:app --port 8000 --reload
 
 cables:
-	cd tools && $(PY) build_cables.py
+	cd tools && $(PY) -m pip install -q -r requirements.txt && $(PY) build_cables.py
 
 destroy:
 	cd terraform && terraform destroy -auto-approve

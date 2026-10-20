@@ -28,12 +28,15 @@ from fastapi.staticfiles import StaticFiles
 
 import config
 import serde
+import vessels as vessel_info
 
 STATIC_DIR = Path(__file__).with_name("static")
 TRACK_POINTS = 120
 VESSEL_TTL_S = 3 * 3600       # drop vessels not heard from for this long
 FIXES_LOOKBACK_S = 30 * 60    # on start, read this much vessel_fixes history
 EVENTS_LOOKBACK_S = 24 * 3600
+RISK_TTL_S = 65 * 60          # a risk state older than this is NORMAL by definition
+DARK_MAX_SOG = 3.0            # same rule as 24_insert_dark_events.sql, for older events in the topic
 
 # Pipeline strip, in data-flow order. Topics that don't exist (optional outcomes) are skipped.
 PIPELINE = [
@@ -65,6 +68,7 @@ class State:
         self.vessels: dict[int, dict] = {}
         self.risk: dict[str, dict] = {}          # "mmsi|cable_id" -> latest vessel_risk row
         self.signals: dict[int, deque] = {}      # mmsi -> recent risk_signals
+        self.static: dict[int, dict] = {}        # mmsi -> latest vessel_static row
         self.dark: dict[int, dict] = {}          # mmsi -> latest dark_events row
         self.incidents: deque = deque(maxlen=200)
         self.rates: dict = {"topics": [], "t": 0}
@@ -112,6 +116,11 @@ def handle_fix(v: dict) -> None:
             state.dark.pop(mmsi)  # transmitting again
 
 
+def handle_static(v: dict) -> None:
+    with state.lock:
+        state.static[v["mmsi"]] = v
+
+
 def handle_corridor(v: dict) -> None:
     with state.lock:
         vessel = state.vessels.get(v["mmsi"])
@@ -128,6 +137,7 @@ def handle_risk(v: dict) -> None:
             "name": v["ship_name"], "score": v["score"], "state": v["state"], "signal": v["last_signal"],
             "loiter": v["loiter_count"], "drag": v["drag_count"], "dark": v["dark_count"],
             "lat": v["lat"], "lon": v["lon"], "t": ms(v["updated_at"]),
+            "watch": v.get("watch_reason"), "watch_points": v.get("watch_points") or 0,
             "seq": state.bump(),
         }
 
@@ -144,6 +154,8 @@ def handle_signal(v: dict) -> None:
 
 
 def handle_dark(v: dict) -> None:
+    if (v.get("last_sog") or 0) >= DARK_MAX_SOG:
+        return
     with state.lock:
         vessel = state.vessels.get(v["mmsi"])
         last_seen = ms(v["last_seen"])
@@ -180,6 +192,7 @@ def handle_brief(v: dict) -> None:
 HANDLERS = {
     config.TOPIC_FIXES: (handle_fix, FIXES_LOOKBACK_S),
     "corridor_fixes": (handle_corridor, FIXES_LOOKBACK_S),
+    config.TOPIC_STATIC: (handle_static, None),  # compacted: read it all
     config.TOPIC_RISK: (handle_risk, None),  # compacted: read it all
     config.TOPIC_SIGNALS: (handle_signal, EVENTS_LOOKBACK_S),
     config.TOPIC_DARK: (handle_dark, 3 * 3600),
@@ -284,24 +297,35 @@ def prune_forever() -> None:
 # ---------------------------------------------------------------------------
 # Snapshots for the browser
 # ---------------------------------------------------------------------------
+def is_service(mmsi: int) -> bool:
+    return vessel_info.is_service((state.static.get(mmsi) or {}).get("ship_type"))
+
+
 def vessel_row(v: dict, scores: dict) -> list:
     hdg = v["hdg"] if v.get("hdg") is not None else v.get("cog")
     return [v["mmsi"], round(v["lat"], 5), round(v["lon"], 5), round(v["sog"], 1),
             None if hdg is None else round(hdg), v.get("nav"), v.get("name"), v["t"],
             scores.get(v["mmsi"], 0),
             # over a cable: the latest fix was also a corridor fix
-            1 if v.get("corridor_t", 0) >= v["t"] - 1000 else 0]
+            1 if v.get("corridor_t", 0) >= v["t"] - 1000 else 0,
+            1 if is_service(v["mmsi"]) else 0]
 
 
 def public(d: dict) -> dict:
-    return {k: v for k, v in d.items() if k != "seq"}
+    out = {k: v for k, v in d.items() if k != "seq"}
+    if "mmsi" in d:
+        out["service"] = is_service(d["mmsi"])
+    return out
 
 
 def delta(since: int) -> dict:
     with state.lock:
+        # A score covers the last hour only, so older risk states no longer count.
+        cutoff = (time.time() - RISK_TTL_S) * 1000
         scores: dict[int, int] = {}
         for r in state.risk.values():
-            scores[r["mmsi"]] = max(scores.get(r["mmsi"], 0), r["score"] or 0)
+            if r["state"] != "NORMAL" and (r["t"] or 0) > cutoff:
+                scores[r["mmsi"]] = max(scores.get(r["mmsi"], 0), r["score"] or 0)
         return {
             "seq": state.seq,
             "vessels": [vessel_row(v, scores) for v in state.vessels.values() if v.get("seq", 0) > since and "lat" in v],
@@ -346,8 +370,6 @@ def index():
 def api_config():
     return {
         "ntfy_url": os.environ.get("NTFY_URL", ""),
-        "console_url": os.environ.get("CONSOLE_URL", ""),
-        "lineage_url": os.environ.get("LINEAGE_URL", ""),
         "repo_url": os.environ.get("REPO_URL", ""),
         "tableflow": os.environ.get("TABLEFLOW_ENABLED", "true") == "true",
         "llm": os.environ.get("LLM_ENABLED", "false") == "true",
@@ -376,11 +398,18 @@ def api_vessel(mmsi: int):
     with state.lock:
         v = state.vessels.get(mmsi)
         dark = state.dark.get(mmsi)
+        static = state.static.get(mmsi)
         if v is None and dark is None:
             raise HTTPException(404)
         return {
             "mmsi": mmsi,
-            "name": (v or {}).get("name") or (dark or {}).get("name"),
+            "name": (static or {}).get("name") or (v or {}).get("name") or (dark or {}).get("name"),
+            "about": vessel_info.describe(mmsi, static),
+            "flag": vessel_info.flag(mmsi),
+            "type": vessel_info.ship_type((static or {}).get("ship_type")),
+            "service": vessel_info.is_service((static or {}).get("ship_type")),
+            "static": {k: static.get(k) for k in ("imo", "call_sign", "destination", "length_m", "beam_m", "draught_m")}
+                      if static else None,
             "track": list(v["track"]) if v else [],
             "nav": (v or {}).get("nav"),
             "nav_changes": list(v["nav_changes"]) if v else [],

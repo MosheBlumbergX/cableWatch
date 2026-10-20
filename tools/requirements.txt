@@ -1,0 +1,4 @@
+h3>=4.2
+httpx>=0.27
+pyproj>=3.6
+shapely>=2.0

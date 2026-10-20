@@ -54,6 +54,46 @@ variable "ntfy_topic" {
   default     = ""
 }
 
+# ---------------------------------------------------------------------------
+# Watch list. Points are added per matching reason, and only on top of a
+# behavioural signal (loiter, drag, dark) in the last hour.
+# ---------------------------------------------------------------------------
+variable "watch_flags" {
+  description = "Flag states on the watch list, as name => ITU Maritime Identification Digits (the first three digits of a ship's MMSI)."
+  type        = map(list(number))
+  default = {
+    # Flags of the suspect vessels in the Baltic incidents (CABLES.md)
+    "Cook Islands" = [518]
+    "Hong Kong"    = [477]
+    "China"        = [412, 413, 414]
+    # Registries often reported in connection with the "shadow fleet" of tankers
+    "Gabon"        = [626]
+    "Comoros"      = [616, 620]
+    "Cameroon"     = [613]
+    "Sierra Leone" = [667]
+    "Palau"        = [511]
+    "Eswatini"     = [669]
+  }
+}
+
+variable "watch_points" {
+  description = "Points added per watch-list reason (flag, type, repeat)."
+  type        = number
+  default     = 15
+}
+
+variable "watch_repeat_signals" {
+  description = "A vessel with this many earlier signals over any cable in the past 7 days is a repeat offender."
+  type        = number
+  default     = 3
+}
+
+variable "notify_service_vessels" {
+  description = "Send notifications for pilot vessels, tugs, search-and-rescue and law-enforcement vessels too. They wait over cables as part of their job, so they are left out by default (the dashboard has its own toggle)."
+  type        = bool
+  default     = false
+}
+
 variable "pagerduty_routing_key" {
   description = "PagerDuty Events API v2 integration key. Empty = no PagerDuty connector. Note: PagerDuty wants it in the request body, so it is part of the pagerduty_events records."
   type        = string
@@ -109,5 +149,5 @@ variable "aws_tags" {
 variable "repo_url" {
   description = "Source repository linked from the dashboard, e.g. https://github.com/you/cableWatch. Empty hides the link."
   type        = string
-  default     = ""
+  default     = "https://github.com/MosheBlumbergX/cableWatch"
 }
