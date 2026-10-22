@@ -35,6 +35,7 @@ Confluent is the AIS producer and the web page.
   as on a nautical chart. A cable turns amber when a vessel over it is on WATCH
   and pulses red at ALERT. Ships are coloured by risk score. A vessel that falls
   silent near a cable leaves a hollow ghost marker that counts the minutes.
+  The crosshair under the zoom buttons recenters on the whole Baltic.
 - **Counters.** Vessels tracked, over a cable now, on watch, gone silent. Click
   one to list those ships (the map dims the rest); click a ship to open it.
 - **Incident log.** Every WATCH, ALERT and resolve, newest first, with a
@@ -48,8 +49,12 @@ Confluent is the AIS producer and the web page.
 - **Phone alerts.** A QR code subscribes your phone to the ntfy topic.
 - **Service vessels.** Pilot boats, tugs, rescue and police vessels are hidden
   unless you tick the box (see [Service vessels](#service-vessels)).
+- **On a phone.** The counters sit above the map, and the incident log and
+  pipeline strip below it; the vessel panel slides up from the bottom.
 
 ![Vessel panel: what kind of ship this is, its flag and dimensions, its speed, and the signals that scored](docs/vessel-panel.jpg)
+
+![On a phone: counters above the map, the incident log below it, and the vessel panel as a bottom sheet](docs/mobile.jpg)
 
 ## Architecture
 

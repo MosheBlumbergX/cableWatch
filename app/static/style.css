@@ -201,7 +201,7 @@ h1, h2, h3 { font-family: var(--figures); font-weight: 600; margin: 0; letter-sp
   position: fixed;
   top: 9.5rem;
   right: 1rem;
-  bottom: 11.5rem; /* leaves room for the zoom buttons beneath it */
+  bottom: 14rem; /* leaves room for the zoom and recenter buttons beneath it */
   width: 21rem;
   overflow-y: auto;
   background: var(--panel);
@@ -327,6 +327,7 @@ h1, h2, h3 { font-family: var(--figures); font-weight: 600; margin: 0; letter-sp
 /* Keep the zoom buttons and attribution clear of the pipeline bar. */
 .maplibregl-ctrl-bottom-right { bottom: 6.75rem; }
 .maplibregl-ctrl-attrib a { color: var(--ink-dim) !important; }
+.recenter { display: grid !important; place-items: center; color: #333; }
 .popup-name { font: 600 var(--step-0)/1.2 var(--figures); }
 
 /* ------------------------------------------------------------------ small screens */
@@ -338,6 +339,32 @@ h1, h2, h3 { font-family: var(--figures); font-weight: 600; margin: 0; letter-sp
   .subscribe { display: none; }
   .log { top: auto; bottom: 6.5rem; height: 30vh; width: auto; right: 13rem; left: 0.75rem; }
   .vessel { top: 6rem; left: 0.75rem; right: 0.75rem; width: auto; bottom: 6.5rem; }
+}
+
+/* Phones (and short landscape screens): one scrolling column, with the
+   counts above the map and the controls, incident log and pipeline below it. */
+@media (max-width: 640px), (max-height: 500px) {
+  html, body { height: auto; overflow: auto; }
+  body { display: flex; flex-direction: column; }
+  .masthead, .controls, .log, .pipeline {
+    position: static;
+    width: auto;
+    max-width: none;
+    pointer-events: auto;
+  }
+  .masthead { order: -1; padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 0.5rem; }
+  .masthead h1 { font-size: var(--step-2); }
+  .lede { display: none; }
+  .counts { grid-template-columns: repeat(4, auto); justify-content: space-between; margin: 0.4rem -0.35rem 0; }
+  .stat .label { white-space: normal; }
+  #map { position: relative; inset: auto; height: 58svh; min-height: 18rem; flex: none; }
+  .maplibregl-ctrl-bottom-right { bottom: 0; }
+  .controls { align-items: stretch; margin: 0.6rem 0.75rem 0; }
+  .subscribe { display: none; }
+  .log { height: auto; max-height: 60svh; min-height: 12rem; margin: 0.6rem 0.75rem 0; }
+  .pipeline { background: none; padding: 0.75rem 0.75rem max(0.75rem, env(safe-area-inset-bottom)); }
+  /* The vessel panel becomes a bottom sheet; the map is scrolled to the top above it. */
+  .vessel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 42svh; border-width: 1px 0 0; background: var(--water); }
 }
 
 @media (prefers-reduced-motion: reduce) {

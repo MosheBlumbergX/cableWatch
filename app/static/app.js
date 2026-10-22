@@ -54,15 +54,42 @@ const ago = (t) => {
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------
+const BALTIC = [[8.8, 53.5], [30.5, 66.0]];
+// Phones stack the panels below the map (see style.css), so the map is unobstructed.
+const stacked = () => matchMedia("(max-width: 640px), (max-height: 500px)").matches;
+// Keep the Baltic clear of whatever panels float over the map at this size.
+function fitPadding() {
+  if (stacked()) return 16;
+  if (innerWidth <= 900) {
+    const pad = { top: 150, bottom: innerHeight * 0.3 + 120, left: 30, right: 30 };
+    return pad.top + pad.bottom < innerHeight * 0.75 ? pad : 30;
+  }
+  return { top: 40, bottom: 110, left: 390, right: 40 };
+}
+
 const map = new maplibregl.Map({
   container: "map",
   style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-  bounds: [[9.5, 53.5], [30.5, 66.0]],
-  fitBoundsOptions: { padding: { top: 40, bottom: 110, left: 390, right: 40 } },
+  bounds: BALTIC,
+  fitBoundsOptions: { padding: fitPadding() },
   minZoom: 3,
   maxZoom: 13,
   attributionControl: false, // credited in the footer, which keeps the zoom buttons clear
 });
+
+class RecenterControl {
+  onAdd() {
+    this.el = document.createElement("div");
+    this.el.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    this.el.innerHTML = `<button type="button" class="recenter" title="Recenter on the Baltic" aria-label="Recenter on the Baltic">
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="10" cy="10" r="1.8" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3" stroke="currentColor" stroke-width="1.6"/></svg></button>`;
+    this.el.firstElementChild.addEventListener("click", () => map.fitBounds(BALTIC, { padding: fitPadding() }));
+    return this.el;
+  }
+  onRemove() { this.el.remove(); }
+}
+map.addControl(new RecenterControl(), "bottom-right");
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
 // Chart-night palette over the CARTO base: deep blue water, slate land, and
@@ -531,6 +558,7 @@ async function openVessel(mmsi, fly = false, at = null) {
 
 function flyToVessel(fallback = null) {
   const center = selectedPos || fallback;
+  if (center && stacked()) $("map").scrollIntoView({ behavior: "smooth", block: "start" });
   if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 9.5), speed: 1.6 });
 }
 $("vessel-locate").addEventListener("click", () => flyToVessel());
